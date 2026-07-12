@@ -1,0 +1,34 @@
+﻿# Compiled bytecode
+*.class
+
+# SECRETS - never commit these
+*.jks
+*.p12
+*.pfx
+server_cert.cer
+.env
+*.env
+
+# Old Java boilerplate (kept from original .gitignore)
+*.log
+*.ctxt
+.mtj.tmp/
+*.war
+*.nar
+*.ear
+*.zip
+*.tar.gz
+*.rar
+hs_err_pid*
+replay_pid*
+
+# IDE / OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Old backup files/folders - not needed in git
+last working codes/
+upgrades
