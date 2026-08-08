@@ -1,5 +1,7 @@
 ﻿# Java Multiclient Chat System
 
+> Proof that Java does it all: JavaFX on the frontend, a WebSocket server on the backend — one language, full stack.
+
 Desktop chat application built with Java + JavaFX, with a WebSocket server backend and PostgreSQL storage. Supports public rooms, direct messages, friend requests, blocking, avatars, and customizable UI/bubble/background themes.
 
 ## Tech stack
