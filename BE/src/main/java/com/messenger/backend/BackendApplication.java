@@ -24,6 +24,18 @@ public class BackendApplication {
             System.exit(1);
         }
 
+        // Подписва session token-ите от AuthController (виж TokenService) — без
+        // тая проверка Spring пак откаже да старне (${AUTH_TOKEN_SECRET} без
+        // default), но само с generic "Could not resolve placeholder" грешка.
+        String authTokenSecret = System.getenv("AUTH_TOKEN_SECRET");
+        if (authTokenSecret == null || authTokenSecret.isBlank()) {
+            System.err.println(
+                "AUTH_TOKEN_SECRET environment variable не е зададена. Задай я преди да пуснеш сървъра: "
+                + "PowerShell -> $env:AUTH_TOKEN_SECRET = \"дълъг-случаен-низ\""
+            );
+            System.exit(1);
+        }
+
         SpringApplication.run(BackendApplication.class, args);
     }
 }

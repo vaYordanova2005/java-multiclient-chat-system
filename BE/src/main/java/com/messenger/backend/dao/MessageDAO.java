@@ -2,15 +2,20 @@ package com.messenger.backend.dao;
 
 import com.google.gson.Gson;
 import com.messenger.backend.model.Message;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Repository;
 
 import javax.sql.DataSource;
 import java.sql.*;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
 @Repository
 public class MessageDAO {
+
+    private static final Logger log = LoggerFactory.getLogger(MessageDAO.class);
 
     private final Gson gson = new Gson();
     private final DataSource dataSource;
@@ -44,7 +49,7 @@ public class MessageDAO {
             stmt.executeUpdate();
 
         } catch (SQLException e) {
-            e.printStackTrace();
+            log.error("Database error in MessageDAO", e);
         }
     }
 
@@ -71,14 +76,14 @@ public class MessageDAO {
 
         String sql = """
             SELECT * FROM (
-                SELECT m.sender, m.receiver, m.room, m.type, m.message, m.timestamp, u.color, u.avatar_id
+                SELECT m.id, m.sender, m.receiver, m.room, m.type, m.message, m.timestamp, u.color, u.avatar_id
                 FROM messages m
                 LEFT JOIN users u ON u.username = m.sender
                 WHERE m.room = ?
-                ORDER BY m.timestamp DESC
+                ORDER BY m.timestamp DESC, m.id DESC
                 LIMIT ?
             ) recent
-            ORDER BY timestamp ASC
+            ORDER BY timestamp ASC, id ASC
         """;
 
         return executeQuery(sql, ps -> {
@@ -92,15 +97,15 @@ public class MessageDAO {
 
         String sql = """
             SELECT * FROM (
-                SELECT m.sender, m.receiver, m.room, m.type, m.message, m.timestamp, u.color, u.avatar_id
+                SELECT m.id, m.sender, m.receiver, m.room, m.type, m.message, m.timestamp, u.color, u.avatar_id
                 FROM messages m
                 LEFT JOIN users u ON u.username = m.sender
                 WHERE (m.sender = ? AND m.receiver = ?)
                    OR (m.sender = ? AND m.receiver = ?)
-                ORDER BY m.timestamp DESC
+                ORDER BY m.timestamp DESC, m.id DESC
                 LIMIT ?
             ) recent
-            ORDER BY timestamp ASC
+            ORDER BY timestamp ASC, id ASC
         """;
 
         return executeQuery(sql, ps -> {
@@ -159,7 +164,7 @@ public class MessageDAO {
             }
 
         } catch (SQLException e) {
-            e.printStackTrace();
+            log.error("Database error in MessageDAO", e);
         }
 
         return partners;
@@ -194,10 +199,13 @@ public class MessageDAO {
                     // на изпращане — не пазим отделна снимка-във-времето на avatar-а).
                     msg.avatarId = rs.getString("avatar_id");
 
-                    Timestamp ts = rs.getTimestamp("timestamp");
+                    // ISO-8601 UTC ("...Z"), СЪЩИЯТ формат като ClientHandler.getTime()
+                    // (Instant.now().toString()) — иначе живите съобщения и историята
+                    // пристигат при клиента в две различни ISO-8601 форми (offset тук
+                    // vs. Z там) и всеки консуматор трябва да парсва и двете.
+                    OffsetDateTime ts = rs.getObject("timestamp", OffsetDateTime.class);
                     if (ts != null) {
-                        msg.timestamp = new java.text.SimpleDateFormat("HH:mm")
-                                .format(new java.util.Date(ts.getTime()));
+                        msg.timestamp = ts.toInstant().toString();
                     }
 
                     result.add(msg);
@@ -205,7 +213,7 @@ public class MessageDAO {
             }
 
         } catch (SQLException e) {
-            e.printStackTrace();
+            log.error("Database error in MessageDAO", e);
         }
 
         return result;

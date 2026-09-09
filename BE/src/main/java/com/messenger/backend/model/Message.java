@@ -17,6 +17,13 @@ public class Message {
     // Avatar на ИЗПРАЩАЧА (msg.user), пътуващ заедно със съобщението.
     public String avatarId;
 
+    // Само за type == "username_changed" — новият session token (виж
+    // TokenService), издаден на новото име. Старият токен носи вече
+    // несъществуващото старо име и UserDAO.userExists ще го отхвърли на
+    // следващ connect, затова ФЕ-то трябва да замести токена си в паметта с
+    // тоя веднага, иначе следващият reconnect се проваля с "token rejected".
+    public String token;
+
     public Message() {
     }
 

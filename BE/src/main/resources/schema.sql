@@ -33,19 +33,10 @@ CREATE TABLE IF NOT EXISTS messages (
     room        VARCHAR(100) NOT NULL,       -- "global" or "dm_userA_userB"
     message     TEXT NOT NULL,
     type        VARCHAR(20) DEFAULT 'message',
-    timestamp   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS conversations (
-    id      SERIAL PRIMARY KEY,
-    user1   VARCHAR(50) NOT NULL,
-    user2   VARCHAR(50) NOT NULL,
-    room    VARCHAR(100) UNIQUE NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS user_status (
-    username    VARCHAR(50) PRIMARY KEY,
-    last_seen   TIMESTAMP
+    -- TIMESTAMPTZ, не TIMESTAMP — плоският "HH:mm" по кабела и TIMESTAMP без
+    -- timezone губеха датата напълно (историята не може да се подреди или
+    -- покаже през различни дни). Wire формат вече е ISO-8601 (виж MessageDAO).
+    timestamp   TIMESTAMPTZ DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS friendships (

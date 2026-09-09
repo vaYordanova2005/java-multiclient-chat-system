@@ -135,6 +135,10 @@ public class ChatTheme {
                 .orElse(ALL_BACKGROUND_THEMES.get(0));
     }
 
+    public static boolean isValidBackgroundThemeId(String id) {
+        return ALL_BACKGROUND_THEMES.stream().anyMatch(t -> t.id.equals(id));
+    }
+
     // Помощен метод: превръща масив HEX цветове в CSS linear-gradient низ
     public static String toCssLinearGradient(String[] colors, String direction) {
         StringBuilder sb = new StringBuilder("linear-gradient(" + direction);
@@ -245,6 +249,10 @@ public class ChatTheme {
                 .orElse(ALL_BUBBLE_THEMES.get(0));
     }
 
+    public static boolean isValidBubbleThemeId(String id) {
+        return ALL_BUBBLE_THEMES.stream().anyMatch(t -> t.id.equals(id));
+    }
+
     // ============================================================
     // UI THEME — swatch избор на ЕДИН accent цвят за UI chrome-а
     // (ляв панел / bottom-nav / chat header), НЕ за bubble/background теми.
@@ -294,5 +302,9 @@ public class ChatTheme {
                 .filter(t -> t.id.equals(DEFAULT_UI_THEME_ID))
                 .findFirst()
                 .orElse(ALL_UI_THEMES.get(0));
+    }
+
+    public static boolean isValidUiThemeId(String id) {
+        return ALL_UI_THEMES.stream().anyMatch(t -> t.id.equals(id));
     }
 }

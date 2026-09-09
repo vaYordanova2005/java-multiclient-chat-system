@@ -1,6 +1,23 @@
 server:
   port: ${PORT:5000}
 
+app:
+  security:
+    # Довери се на X-Forwarded-For за резолвиране на реалния client IP (per-IP
+    # rate limit / connection limit). Включвай САМО ако приложението наистина
+    # е зад точно един reverse proxy hop, който сам добавя тоя хедър (напр.
+    # Render) — иначе клиент може да си пише произволен X-Forwarded-For и да
+    # заобиколи изцяло lockout/connection лимитите. Виж ClientIpHandshakeInterceptor.
+    trust-proxy-headers: ${TRUST_PROXY_HEADERS:false}
+    # WebSocket CORS — comma-separated origin patterns (e.g.
+    # "https://my-app.vercel.app"). "*" until the FE's deploy domain is known;
+    # narrow it as soon as it is, before going to production.
+    allowed-origin-patterns: ${ALLOWED_ORIGIN_PATTERNS:*}
+    # Signs the session tokens AuthController hands out on REST login — see
+    # TokenService. No default; BackendApplication.main() checks this fails
+    # fast with a clear message, same as DB_PASSWORD.
+    auth-token-secret: ${AUTH_TOKEN_SECRET:}
+
 spring:
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/chatdb}

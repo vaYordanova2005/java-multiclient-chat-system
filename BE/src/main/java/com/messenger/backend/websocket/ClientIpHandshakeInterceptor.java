@@ -1,5 +1,6 @@
 package com.messenger.backend.websocket;
 
+import com.messenger.backend.web.ClientIpResolver;
 import org.springframework.http.server.ServerHttpRequest;
 import org.springframework.http.server.ServerHttpResponse;
 import org.springframework.web.socket.WebSocketHandler;
@@ -7,32 +8,41 @@ import org.springframework.web.socket.server.HandshakeInterceptor;
 
 import java.util.Map;
 
-// Резолвира клиентския IP по X-Forwarded-For, ако е наличен. Зад reverse
-// proxy (Render, или всеки друг PaaS deployment — виж коментара в
-// BackendApplication за защо това е реалният deployment модел тук),
-// WebSocketSession.getRemoteAddress() би върнал IP-то на прокси-то за
-// ВСЯКА връзка, не на реалния клиент — това би направило
-// ChatWebSocketHandler.MAX_CONNECTIONS_PER_IP лимит глобален (10 връзки
-// общо за цялото приложение), вместо per-client, както е замислен.
-// При директна локална връзка (без прокси, без хедъра) пада обратно на
-// getRemoteAddress().
+// Резолвира клиентския IP по X-Forwarded-For, но САМО когато приложението е
+// изрично конфигурирано да е зад доверен reverse proxy (TRUST_PROXY_HEADERS=true,
+// напр. на Render). X-Forwarded-For е обикновен HTTP хедър — всеки клиент може
+// да го прати сам, така че сляпото му доверяване прави MAX_CONNECTIONS_PER_IP
+// и login lockout-а декоративни (произволен XFF на всеки опит = различен "IP"
+// всеки път). Затова:
+//   - по подразбиране (без TRUST_PROXY_HEADERS=true) хедърът се игнорира изцяло
+//     и се ползва реалният TCP peer адрес — вярно за локална разработка и за
+//     всеки deployment без proxy пред нас;
+//   - когато е включено (защото знаем, че деплойваме зад точно един proxy hop —
+//     Render), взимаме ПОСЛЕДНИЯ адрес във веригата, не първия. Всеки proxy hop
+//     ДОБАВЯ (append) видения от него адрес towards края на списъка — първият
+//     елемент е каквото клиентът сам е написал в хедъра (напълно недоверено),
+//     докато последният е това, което нашият директен (единствен, доверен)
+//     proxy е видял като свой клиент.
 public class ClientIpHandshakeInterceptor implements HandshakeInterceptor {
 
     public static final String CLIENT_IP_ATTRIBUTE = "clientIp";
+
+    private final boolean trustProxyHeaders;
+
+    public ClientIpHandshakeInterceptor(boolean trustProxyHeaders) {
+        this.trustProxyHeaders = trustProxyHeaders;
+    }
 
     @Override
     public boolean beforeHandshake(ServerHttpRequest request, ServerHttpResponse response,
                                     WebSocketHandler wsHandler, Map<String, Object> attributes) {
         String forwardedFor = request.getHeaders().getFirst("X-Forwarded-For");
-        String ip;
-        if (forwardedFor != null && !forwardedFor.isBlank()) {
-            // Може да е верига от прокси-та ("client, proxy1, proxy2") — първият е реалният клиент.
-            ip = forwardedFor.split(",")[0].trim();
-        } else if (request.getRemoteAddress() != null) {
-            ip = request.getRemoteAddress().getAddress().getHostAddress();
-        } else {
-            ip = "unknown";
-        }
+        String remoteAddress = (request.getRemoteAddress() != null)
+                ? request.getRemoteAddress().getAddress().getHostAddress()
+                : null;
+
+        String ip = ClientIpResolver.resolve(forwardedFor, remoteAddress, trustProxyHeaders);
+
         attributes.put(CLIENT_IP_ATTRIBUTE, ip);
         return true;
     }

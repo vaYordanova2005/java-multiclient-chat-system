@@ -19,10 +19,14 @@ not, so it's being replaced with a React frontend.
 
 ## Status
 
-`BE/` is now a real (if minimal) Spring Boot Maven project — same wire
-protocol as `legacy/`, but running on Spring's WebSocket support and a
-Spring-managed DataSource instead of the standalone Java-WebSocket
-library/manual HikariCP singleton. Its schema (`BE/src/main/resources/schema.sql`)
-is clean, valid PostgreSQL, verified against a real Neon database. No REST
-endpoints yet, and no JPA — see [`BE/README.md`](BE/README.md) for what
+`BE/` is now a real (if minimal) Spring Boot Maven project, running on
+Spring's WebSocket support and a Spring-managed DataSource instead of the
+standalone Java-WebSocket library/manual HikariCP singleton. Its schema
+(`BE/src/main/resources/schema.sql`) is clean, valid PostgreSQL, verified
+against a real Neon database. Auth (register/login/password reset) is now
+REST (`POST /api/auth/...`), not part of the WebSocket protocol — the
+WebSocket (`/ws`) is chat/messaging only, and requires a token from
+`/api/auth/login` to even open (see [`BE/README.md`](BE/README.md), "Auth:
+REST, not WebSocket"). This is the one deliberate protocol break from
+`legacy/`; no JPA — see [`BE/README.md`](BE/README.md) for what else
 changed and what's intentionally still deferred. `FE/` is empty.

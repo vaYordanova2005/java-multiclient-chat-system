@@ -1,15 +1,24 @@
 package com.messenger.backend.dao;
 
 import com.messenger.backend.model.ChatTheme;
+import com.messenger.backend.validation.UsernameValidator;
 import org.mindrot.jbcrypt.BCrypt;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Repository;
 
 import javax.sql.DataSource;
 import java.sql.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Random;
 
 @Repository
 public class UserDAO {
+
+    private static final Logger log = LoggerFactory.getLogger(UserDAO.class);
 
     private final DataSource dataSource;
 
@@ -65,9 +74,9 @@ public class UserDAO {
         } catch (SQLException e) {
             // SQLState 23505 = unique_violation (Postgres duplicate key)
             if ("23505".equals(e.getSQLState())) {
-                System.out.println("Username already exists!");
+                log.info("Registration rejected: username already exists");
             } else {
-                e.printStackTrace();
+                log.error("Database error in UserDAO", e);
             }
             return false;
         }
@@ -80,8 +89,14 @@ public class UserDAO {
         return answer.trim().toLowerCase();
     }
 
-    // LOGIN USER
-    public boolean loginUser(String username, String password) {
+    // Резултат от опит за автентикация — разграничава "грешна парола/няма
+    // такъв потребител" от "не успяхме да проверим, базата е недостъпна".
+    // Клиентският код трябва да покаже различно съобщение за всеки случай:
+    // иначе при паднала база потребителят вижда подвеждащото "Wrong username
+    // or password" и може да си мисли, че е забравил паролата.
+    public enum AuthResult { SUCCESS, INVALID_CREDENTIALS, ERROR }
+
+    public AuthResult authenticate(String username, String password) {
 
         // Вече не сравняваме паролата в SQL заявката (WHERE password = ?),
         // защото хешът е различен всеки път (различна salt). Първо вземаме
@@ -96,44 +111,106 @@ public class UserDAO {
             ResultSet rs = stmt.executeQuery();
 
             if (!rs.next()) {
-                return false; // няма такъв потребител
+                return AuthResult.INVALID_CREDENTIALS; // няма такъв потребител
             }
 
             String storedHash = rs.getString("password");
-            return BCrypt.checkpw(password, storedHash);
+            return BCrypt.checkpw(password, storedHash)
+                    ? AuthResult.SUCCESS
+                    : AuthResult.INVALID_CREDENTIALS;
 
         } catch (SQLException e) {
-            e.printStackTrace();
+            log.error("Database error while authenticating user", e);
+            return AuthResult.ERROR;
+        }
+    }
+
+    // Удобен boolean wrapper — за вътрешни проверки (напр. deleteAccount), на
+    // които не им пука ЗАЩО автентикацията се е провалила, само дали е успяла.
+    public boolean loginUser(String username, String password) {
+        return authenticate(username, password) == AuthResult.SUCCESS;
+    }
+
+    // Проверява, че username-ът от токена ВСЕ ОЩЕ е реален ред в users — викан
+    // веднъж на WebSocket connect (ChatWebSocketHandler), не на всяко
+    // съобщение. Токенът е stateless и валиден до 24ч след издаване
+    // (TokenService) — без тая проверка изтрит акаунт (delete_account) или
+    // преименуван (changeUsername, старото име) продължава да се свързва
+    // призрачно със стар токен: появява се в online списъка, съобщенията му
+    // се записват със sender, който няма ред в users (null color/avatar от
+    // LEFT JOIN), или ensureUserColor прави UPDATE върху 0 реда. DB грешка се
+    // третира като "не съществува" (false) — същото решение като
+    // FriendshipDAO.userExists за идентичен SQL: по-безопасно да откажем
+    // connect-а при несигурност, отколкото да пуснем евентуален призрак.
+    public boolean userExists(String username) {
+        String sql = "SELECT 1 FROM users WHERE username = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, username);
+            return stmt.executeQuery().next();
+        } catch (SQLException e) {
+            log.error("Database error while checking if user exists", e);
             return false;
         }
     }
 
-    // Връща постоянния цвят на потребителя от базата.
-    // Ако по някаква причина акаунтът няма цвят (стар запис отпреди миграцията
-    // и неприложен UPDATE), генерира нов и го записва, за да не върне null повече.
-    public String getUserColor(String username) {
-
+    // Вътрешен read, БЕЗ страничен запис — хвърля SQLException вместо да я
+    // поглъща, за да могат getUserColor() и ensureUserColor() да реагират
+    // различно на "няма ред/няма цвят" срещу "заявката гръмна" (виж защо
+    // това разграничение е важно в коментара на ensureUserColor()).
+    private String selectUserColor(String username) throws SQLException {
         String sql = "SELECT color FROM users WHERE username = ?";
 
         try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
 
             stmt.setString(1, username);
-
             ResultSet rs = stmt.executeQuery();
 
             if (rs.next()) {
                 String color = rs.getString("color");
-                if (color != null && !color.isEmpty()) {
-                    return color;
-                }
+                return (color != null && !color.isEmpty()) ? color : null;
             }
-
-        } catch (SQLException e) {
-            e.printStackTrace();
         }
 
-        // Fallback: генерираме и записваме цвят, ако липсва
+        return null;
+    }
+
+    // Връща постоянния цвят на потребителя от базата — чист read, БЕЗ
+    // страничен запис. Връща null и при липсващ цвят, и при DB грешка
+    // (логвана) — извикващият не различава двата случая тук. За разлика от
+    // ensureUserColor(), тук това е ОК: чист read няма какво да развали.
+    public String getUserColor(String username) {
+        try {
+            return selectUserColor(username);
+        } catch (SQLException e) {
+            log.error("Database error in UserDAO", e);
+            return null;
+        }
+    }
+
+    // Backfill за стари акаунти без цвят (регистрирани преди тая колона,
+    // или UPDATE-ът от миграцията не е стигнал до тях). Генерира и записва
+    // нов цвят, НО само ако наистина липсва — не и при DB грешка. Ако
+    // ползвахме getUserColor() тук (който връща null и в двата случая),
+    // временен SQLException в SELECT-а точно по време на login би довел до
+    // генериране и презаписване на НОВ случаен цвят върху постоянния на
+    // потребителя, само заради еднократен hiccup. При грешка връщаме null
+    // и НЕ пипаме базата — извикващият (completeLogin) просто няма цвят
+    // тоя път, вместо потребителят да го изгуби завинаги.
+    public String ensureUserColor(String username) {
+        String existing;
+        try {
+            existing = selectUserColor(username);
+        } catch (SQLException e) {
+            log.error("Database error in UserDAO while ensuring user color", e);
+            return null;
+        }
+
+        if (existing != null) {
+            return existing;
+        }
+
         String newColor = generateRandomColor();
         setUserColor(username, newColor);
         return newColor;
@@ -150,7 +227,7 @@ public class UserDAO {
             stmt.executeUpdate();
 
         } catch (SQLException e) {
-            e.printStackTrace();
+            log.error("Database error in UserDAO", e);
         }
     }
 
@@ -175,7 +252,7 @@ public class UserDAO {
             }
 
         } catch (SQLException e) {
-            e.printStackTrace();
+            log.error("Database error in UserDAO", e);
         }
         return null;
     }
@@ -200,7 +277,7 @@ public class UserDAO {
             }
 
         } catch (SQLException e) {
-            e.printStackTrace();
+            log.error("Database error in UserDAO", e);
             return false;
         }
 
@@ -217,7 +294,7 @@ public class UserDAO {
             return true;
 
         } catch (SQLException e) {
-            e.printStackTrace();
+            log.error("Database error in UserDAO", e);
             return false;
         }
     }
@@ -262,7 +339,7 @@ public class UserDAO {
             }
 
         } catch (SQLException e) {
-            e.printStackTrace();
+            log.error("Database error in UserDAO", e);
         }
 
         return new ThemePreferences(ChatTheme.DEFAULT_BUBBLE_THEME_ID, ChatTheme.DEFAULT_BACKGROUND_THEME_ID, ChatTheme.DEFAULT_UI_THEME_ID);
@@ -280,7 +357,7 @@ public class UserDAO {
             stmt.executeUpdate();
 
         } catch (SQLException e) {
-            e.printStackTrace();
+            log.error("Database error in UserDAO", e);
         }
     }
 
@@ -296,7 +373,7 @@ public class UserDAO {
             stmt.executeUpdate();
 
         } catch (SQLException e) {
-            e.printStackTrace();
+            log.error("Database error in UserDAO", e);
         }
     }
 
@@ -312,7 +389,7 @@ public class UserDAO {
             stmt.executeUpdate();
 
         } catch (SQLException e) {
-            e.printStackTrace();
+            log.error("Database error in UserDAO", e);
         }
     }
 
@@ -333,7 +410,7 @@ public class UserDAO {
             }
 
         } catch (SQLException e) {
-            e.printStackTrace();
+            log.error("Database error in UserDAO", e);
         }
         return null;
     }
@@ -349,7 +426,7 @@ public class UserDAO {
             stmt.executeUpdate();
 
         } catch (SQLException e) {
-            e.printStackTrace();
+            log.error("Database error in UserDAO", e);
         }
     }
 
@@ -358,8 +435,20 @@ public class UserDAO {
     // UI трябва да покаже различно съобщение за всяка.
     public enum UsernameChangeResult { SUCCESS, ALREADY_TAKEN, INVALID, ERROR }
 
+    // Преименуването пипа три места атомарно, в една транзакция:
+    //   1. users.username (самият акаунт)
+    //   2. messages.sender/receiver — иначе цялата стара история на потребителя
+    //      остава завинаги с старото име: LEFT JOIN към users вече не намира
+    //      ред (null color/avatar), а loadDMHistory(user1, user2) търси по
+    //      ТЕКУЩОТО име и вече не намира старите DM-и.
+    //   3. messages.room за "dm_userA_userB" редове — getDMConversationPartners
+    //      търси по тоя стринг (LIKE), затова и той трябва да се обнови.
+    // Не ползваме FK ON UPDATE CASCADE (алтернативата, предложена в ревюто),
+    // защото messages.sender пази и стойността "SERVER" за системни съобщения,
+    // която не е валиден ред в users — строг FK constraint би счупил всеки
+    // join/leave/system insert. Постигаме същия резултат ръчно, в транзакция.
     public UsernameChangeResult changeUsername(String oldUsername, String newUsername) {
-        if (newUsername == null || newUsername.trim().isEmpty() || newUsername.length() > 50) {
+        if (newUsername == null || !UsernameValidator.isValid(newUsername.trim())) {
             return UsernameChangeResult.INVALID;
         }
         newUsername = newUsername.trim();
@@ -367,22 +456,106 @@ public class UserDAO {
             return UsernameChangeResult.SUCCESS; // нищо за правене, но не е грешка
         }
 
-        String sql = "UPDATE users SET username = ? WHERE username = ?";
+        try (Connection conn = getConnection()) {
+            conn.setAutoCommit(false);
 
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            try {
+                try (PreparedStatement stmt = conn.prepareStatement(
+                        "UPDATE users SET username = ? WHERE username = ?")) {
+                    stmt.setString(1, newUsername);
+                    stmt.setString(2, oldUsername);
+                    stmt.executeUpdate();
+                }
 
-            stmt.setString(1, newUsername);
-            stmt.setString(2, oldUsername);
-            stmt.executeUpdate();
-            return UsernameChangeResult.SUCCESS;
+                try (PreparedStatement stmt = conn.prepareStatement(
+                        "UPDATE messages SET sender = ? WHERE sender = ?")) {
+                    stmt.setString(1, newUsername);
+                    stmt.setString(2, oldUsername);
+                    stmt.executeUpdate();
+                }
+
+                try (PreparedStatement stmt = conn.prepareStatement(
+                        "UPDATE messages SET receiver = ? WHERE receiver = ?")) {
+                    stmt.setString(1, newUsername);
+                    stmt.setString(2, oldUsername);
+                    stmt.executeUpdate();
+                }
+
+                // friendships.user_a/user_b следват преименуването сами през
+                // ON UPDATE CASCADE, но requested_by НЕ е FK и остава със старото
+                // име. Ако не го обновим тук, pending заявка на преименувал се
+                // потребител увисва завинаги: getPendingRequests връща вече
+                // несъществуващото старо име, а acceptRequest/declineRequest
+                // търсят реда по (user_a, user_b, requested_by) — новото име в
+                // първите две вече не съвпада със старото в третото, match-ът е
+                // 0 реда и заявката не може нито да се приеме, нито да се откаже.
+                try (PreparedStatement stmt = conn.prepareStatement(
+                        "UPDATE friendships SET requested_by = ? WHERE requested_by = ?")) {
+                    stmt.setString(1, newUsername);
+                    stmt.setString(2, oldUsername);
+                    stmt.executeUpdate();
+                }
+
+                renameDmRooms(conn, oldUsername, newUsername);
+
+                conn.commit();
+                return UsernameChangeResult.SUCCESS;
+
+            } catch (SQLException e) {
+                conn.rollback();
+                if ("23505".equals(e.getSQLState())) {
+                    return UsernameChangeResult.ALREADY_TAKEN;
+                }
+                log.error("Database error while changing username", e);
+                return UsernameChangeResult.ERROR;
+            }
 
         } catch (SQLException e) {
-            if ("23505".equals(e.getSQLState())) {
-                return UsernameChangeResult.ALREADY_TAKEN;
-            }
-            e.printStackTrace();
+            log.error("Database error while changing username", e);
             return UsernameChangeResult.ERROR;
+        }
+    }
+
+    // Пренаписва "dm_userA_userB" room стойностите, в които oldUsername е един
+    // от двамата участници. Username-ите вече минават през UsernameValidator
+    // (само [A-Za-z0-9]), затова split("_", 3) е недвусмислен — не пипаме реда
+    // на двете имена, само заместваме съвпадащото, защото никой BE запитване
+    // не зависи от азбучния ред (loadDMHistory търси и в двете посоки).
+    private void renameDmRooms(Connection conn, String oldUsername, String newUsername) throws SQLException {
+        List<String> rooms = new ArrayList<>();
+
+        String selectSql = """
+            SELECT DISTINCT room FROM messages
+            WHERE room LIKE 'dm\\_%'
+              AND (room LIKE CONCAT('dm\\_', ?, '\\_%') OR room LIKE CONCAT('%\\_', ?))
+        """;
+
+        try (PreparedStatement stmt = conn.prepareStatement(selectSql)) {
+            stmt.setString(1, oldUsername);
+            stmt.setString(2, oldUsername);
+            ResultSet rs = stmt.executeQuery();
+            while (rs.next()) {
+                rooms.add(rs.getString("room"));
+            }
+        }
+
+        try (PreparedStatement update = conn.prepareStatement(
+                "UPDATE messages SET room = ? WHERE room = ?")) {
+            for (String room : rooms) {
+                String[] parts = room.split("_", 3);
+                if (parts.length != 3) continue;
+
+                String a = parts[1].equals(oldUsername) ? newUsername : parts[1];
+                String b = parts[2].equals(oldUsername) ? newUsername : parts[2];
+                String newRoom = "dm_" + a + "_" + b;
+
+                if (!newRoom.equals(room)) {
+                    update.setString(1, newRoom);
+                    update.setString(2, room);
+                    update.addBatch();
+                }
+            }
+            update.executeBatch();
         }
     }
 
@@ -403,9 +576,51 @@ public class UserDAO {
             }
 
         } catch (SQLException e) {
-            e.printStackTrace();
+            log.error("Database error in UserDAO", e);
         }
         return true; // default: видим
+    }
+
+    // Малък value-обект: видимост + avatar накуп, за batch заявката по-долу.
+    public static class OnlineProfile {
+        public final boolean showOnlineStatus;
+        public final String avatarId;
+
+        public OnlineProfile(boolean showOnlineStatus, String avatarId) {
+            this.showOnlineStatus = showOnlineStatus;
+            this.avatarId = avatarId;
+        }
+    }
+
+    // Взима show_online_status + avatar_id за ВСИЧКИ подадени username-и в ЕДНА
+    // заявка, вместо getShowOnlineStatus(u) + getAvatarId(u) на всеки поотделно
+    // в цикъл (broadcastOnlineUsers иначе прави ~2N заявки на всяко
+    // connect/disconnect/rename/visibility-change събитие).
+    public Map<String, OnlineProfile> getOnlineProfiles(List<String> usernames) {
+        Map<String, OnlineProfile> result = new HashMap<>();
+        if (usernames.isEmpty()) return result;
+
+        String sql = "SELECT username, show_online_status, avatar_id FROM users WHERE username = ANY(?)";
+
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            Array usernameArray = conn.createArrayOf("varchar", usernames.toArray());
+            stmt.setArray(1, usernameArray);
+
+            ResultSet rs = stmt.executeQuery();
+            while (rs.next()) {
+                result.put(rs.getString("username"),
+                        new OnlineProfile(rs.getBoolean("show_online_status"), rs.getString("avatar_id")));
+            }
+
+            usernameArray.free();
+
+        } catch (SQLException e) {
+            log.error("Database error while batch-loading online profiles", e);
+        }
+
+        return result;
     }
 
     public void setShowOnlineStatus(String username, boolean visible) {
@@ -419,7 +634,7 @@ public class UserDAO {
             stmt.executeUpdate();
 
         } catch (SQLException e) {
-            e.printStackTrace();
+            log.error("Database error in UserDAO", e);
         }
     }
 
@@ -470,7 +685,7 @@ public class UserDAO {
             }
 
         } catch (SQLException e) {
-            e.printStackTrace();
+            log.error("Database error in UserDAO", e);
             return false;
         }
     }
