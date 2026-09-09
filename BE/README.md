@@ -4,14 +4,47 @@ A Spring Boot Maven port of the reusable, non-UI server code from
 [`../legacy`](../legacy): the WebSocket handler, DAOs, DB schema, and the
 `Message`/`ChatTheme` models. Nothing here depends on JavaFX.
 
-Mostly the same wire protocol as `legacy/Server.java` + `legacy/ClientHandler.java`
-(same `AUTH_LOGIN|...`/`AUTH_REGISTER|...` pre-auth commands, same JSON
-`Message` shape post-auth, same rate limiting/validation/brute-force lockout)
-— this pass mainly replaces the *plumbing* (transport, DB connection
-management, project structure), not the protocol or business logic. **Not a
-byte-for-byte match, though** — see "Breaking changes vs. legacy client"
-below for the one field whose format changed. No REST endpoints yet; that's
-a decision to make together with the FE work, not before it.
+Same JSON `Message` shape and business logic (rate limiting/validation/
+brute-force lockout, friends, blocking, themes, profile) as
+`legacy/Server.java` + `legacy/ClientHandler.java` for everything *after*
+login. **Auth itself no longer matches `legacy/`** — see "Auth: REST, not
+WebSocket" below. That's a deliberate protocol change, not leftover
+plumbing-replacement drift: a React FE talking auth over a raw WebSocket
+(open a socket, send `AUTH_LOGIN|user|pass`, parse a pipe-delimited string
+back) is unusual and awkward to debug from browser dev tools, versus a plain
+`POST /api/auth/login` returning a token. See "Breaking changes vs. legacy
+client" below for the full list, including the one wire-format field that
+also changed independently of this.
+
+## Auth: REST, not WebSocket
+
+Login/register/password-reset are now plain REST endpoints
+(`web/AuthController.java`), not socket commands:
+
+| Endpoint | Body | Success | Failure |
+|---|---|---|---|
+| `POST /api/auth/register` | `{username, password, securityQuestion, securityAnswer}` | `200` | `400`/`429` `{error}` |
+| `POST /api/auth/login` | `{username, password}` | `200 {token, username}` | `400`/`401`/`423`/`429`/`503` `{error}` |
+| `POST /api/auth/reset/question` | `{username}` | `200 {question}` | `404 {error}` |
+| `POST /api/auth/reset/verify` | `{username, answer, newPassword}` | `200` | `400`/`401`/`423`/`429` `{error}` |
+
+The `token` from `/api/auth/login` is a signed, stateless, 24h-expiry token
+(`security/TokenService.java`, HMAC-SHA256 — no server-side session
+storage). The FE passes it back as a query parameter when opening the
+WebSocket: **`ws://host/ws?token=<token>`**. `TokenAuthHandshakeInterceptor`
+verifies it *during the handshake* — a missing/invalid/expired token gets
+the handshake itself rejected with `401`, the connection never opens.
+`ChatWebSocketHandler`/`ClientHandler` no longer have any pre-auth phase:
+every `ClientHandler` that exists is, by construction, already
+authenticated. The old `AUTH_LOGIN|...`/`AUTH_REGISTER|...`/
+`AUTH_RESET_*|...` pre-auth commands and the whole `|`-delimited pre-auth
+protocol are gone from the socket entirely.
+
+Per-IP brute-force lockout (5 failed logins -> 60s lock) and per-IP request
+rate limiting (used to gate registration's 2x bcrypt hashing from being a
+CPU-exhaustion vector) moved with it, from static maps on `ClientHandler`
+into a proper Spring bean (`security/AuthRateLimiter.java`) used by
+`AuthController`.
 
 ## What changed vs. `legacy/`
 
@@ -43,11 +76,15 @@ build:
   - `UserDaoChangeUsernameIT` — the `UserDAO.changeUsername` transaction
     (renames across `users`, `messages.sender/receiver/room`,
     `friendships.requested_by` in one commit; rollback on `ALREADY_TAKEN`).
-  - `WebSocketProtocolIT` — a full wire-protocol round trip through the real
-    transport (`StandardWebSocketClient` -> embedded Tomcat ->
-    `ChatWebSocketHandler` -> `ClientHandler` -> DAOs -> the Testcontainers
-    Postgres): `AUTH_REGISTER` -> `AUTH_LOGIN` -> send a `message` -> assert
-    the broadcast echo, including the UTC/`Z` timestamp format.
+  - `WebSocketProtocolIT` — a full round trip through the real transport:
+    REST register -> REST login (via `TestRestTemplate`, asserting the
+    returned token) -> open the WebSocket with `?token=<token>`
+    (`StandardWebSocketClient` -> embedded Tomcat ->
+    `TokenAuthHandshakeInterceptor` -> `ChatWebSocketHandler` ->
+    `ClientHandler` -> DAOs -> the Testcontainers Postgres) -> send a
+    `message` -> assert the broadcast echo, including the UTC/`Z` timestamp
+    format. A second test asserts the handshake is rejected outright when no
+    `?token=` is supplied.
 
   **Requires a running Docker daemon** — `./mvnw verify` fails fast with
   `Could not find a valid Docker environment` if one isn't reachable, same
@@ -96,8 +133,17 @@ setup changes.
 
 ## Breaking changes vs. legacy client
 
-Everything above is "same protocol" *except* this one field:
-
+- **Auth no longer works over the socket at all.** The old JavaFX client
+  (and anything else that speaks `legacy/`'s wire protocol) sends
+  `AUTH_LOGIN|user|pass` as its first WebSocket message and expects
+  `AUTH_OK|user` back on the same connection. Against this backend that
+  message is now meaningless — there's no pre-auth phase, and
+  `TokenAuthHandshakeInterceptor` rejects the *handshake itself* with `401`
+  before any message could even be sent, because there's no `?token=`. A
+  client must call `POST /api/auth/login` first and open the socket with the
+  returned token; see "Auth: REST, not WebSocket" above. This is the biggest
+  breaking change in this pass — the old client cannot be pointed at this
+  backend and made to work without changes.
 - **`Message.timestamp` format changed from `HH:mm` to ISO-8601 UTC**
   (`Instant.toString()`, e.g. `2026-09-09T13:03:29.895078Z`) — for both
   live-broadcast messages (`ClientHandler.getTime()`) and history loaded
@@ -134,6 +180,8 @@ $env:DB_USER     = "chatapp_user"                                # optional, def
 $env:DB_PASSWORD = "your-postgres-password"                       # required, no default
 $env:PORT        = "5000"                                        # optional, defaults to 5000 (Render etc. inject this automatically)
 $env:TRUST_PROXY_HEADERS = "true"                                 # optional, defaults to false — see below
+$env:ALLOWED_ORIGIN_PATTERNS = "https://my-app.vercel.app"       # optional, defaults to "*" — see below
+$env:AUTH_TOKEN_SECRET = "a long random string"                  # required, no default — see below
 ```
 
 `TRUST_PROXY_HEADERS` controls whether `X-Forwarded-For` is trusted to resolve
@@ -145,9 +193,22 @@ entirely. Only set it to `true` when the app is actually deployed behind
 exactly one trusted reverse proxy hop (e.g. Render) that sets this header
 itself; see `ClientIpHandshakeInterceptor` for the exact hop-selection logic.
 
-`DB_PASSWORD` is required — `BackendApplication.main()` checks for it before
-starting Spring and exits with a clear message if it's missing, same as
-`Database.java` used to.
+`ALLOWED_ORIGIN_PATTERNS` restricts which origins may open the `/ws`
+WebSocket connection (comma-separated, e.g.
+`https://my-app.vercel.app,https://my-app.onrender.com`). Defaults to `*`
+because there's no FE deploy domain to lock it to yet — narrow this to the
+real FE origin(s) before going to production; see `WebSocketConfig`.
+
+`AUTH_TOKEN_SECRET` signs the session tokens `POST /api/auth/login` hands out
+(see "Auth: REST, not WebSocket" above and `TokenService`) — anyone who knows
+it can forge a valid token for any username, so treat it like a password.
+There is no default; pick a long random string and keep it stable across
+restarts of the same deployment (rotating it invalidates every outstanding
+token, forcing all connected clients to re-login).
+
+`DB_PASSWORD` and `AUTH_TOKEN_SECRET` are both required — `BackendApplication.main()`
+checks for them before starting Spring and exits with a clear message if
+either is missing, same as `Database.java` used to do for `DB_PASSWORD` alone.
 
 ## Database setup (Neon / PostgreSQL)
 
@@ -183,7 +244,12 @@ starting Spring and exits with a clear message if it's missing, same as
 Verified end-to-end against a real Neon database while building this: schema
 applies cleanly, the app connects and boots, and a full
 register → login → send message → change theme round trip persists correctly
-(including the `ui_theme` column, see below).
+(including the `ui_theme` column, see below). **That Neon run predates the
+REST-auth change** (it used the old `AUTH_LOGIN|...` socket protocol) — it
+has not been re-run against a live Neon database with the new
+`/api/auth/*` + `?token=` flow. That flow *is* covered by `WebSocketProtocolIT`
+against a Testcontainers Postgres in CI (see "Testing" above), just not
+against real Neon infra specifically.
 
 ### About the `ui_theme` column
 
@@ -207,16 +273,29 @@ username is free to be registered again by someone else afterwards. This is
 a conscious trade-off, not an oversight — flagged here so it doesn't read as
 a bug later.
 
-## Known limitation: `Message.java` / `ChatTheme.java` duplication
+## Known limitation: `Message.java` / `ChatTheme.java` duplication (partially addressed)
 
 Both classes are logically shared between server and client — `legacy/Client.java`
 and `legacy/Main.java` use their own copies for the same wire format and theme
 IDs. After this port, `BE/` and `legacy/` each have an independent copy in a
 different package/module tree. Nothing keeps them in sync: the first change
 to the message shape or a theme ID list will silently desync client and
-server. Not fixed now — there's no FE yet and no shared-module mechanism to
-put them in — but flagged here explicitly so it's a known trade-off, not a
-surprise bug later.
+server.
+
+For `ChatTheme` specifically — ~300 lines of color catalogs, the part most
+likely to drift if hand-ported to TypeScript — **`GET /api/themes`**
+(`web/ThemeController.java`) now serves `ALL_BUBBLE_THEMES`/
+`ALL_BACKGROUND_THEMES`/`ALL_UI_THEMES` plus the three default IDs as JSON.
+The FE should fetch this once at startup instead of re-typing the catalog in
+TS. This doesn't eliminate the duplication risk for `Message`'s *shape*
+(there's still no shared-module mechanism, and the FE will need its own
+TypeScript type mirroring `Message`'s fields) — just removes the one part
+that was pure, easily-out-of-sync data rather than a type definition.
+
+`ChatTheme.isValidBubbleThemeId`/`isValidBackgroundThemeId`/`isValidUiThemeId`
+remain the sole authority for which theme IDs `ClientHandler.set_theme`
+accepts — `/api/themes` is a read model for the FE's UI, it doesn't change
+that validation.
 
 ## Known limitation: both Gson and Jackson are on the classpath
 
@@ -239,13 +318,20 @@ the protocol two independent serializers that can silently drift apart.
 
 | Path | Purpose |
 |---|---|
-| `BackendApplication.java` | entry point |
-| `config/WebSocketConfig.java` | registers the WebSocket handler at `/ws` |
+| `BackendApplication.java` | entry point; fails fast if `DB_PASSWORD`/`AUTH_TOKEN_SECRET` are missing |
+| `config/WebSocketConfig.java` | registers the WebSocket handler at `/ws`, wires up both handshake interceptors |
+| `config/WebConfig.java` | CORS for `/api/**` (REST), mirrors `WebSocketConfig`'s origin patterns |
+| `web/AuthController.java` | `POST /api/auth/{register,login,reset/question,reset/verify}` — REST auth, issues tokens |
+| `web/ThemeController.java` | `GET /api/themes` — serves the `ChatTheme` catalog as JSON |
+| `web/ClientIpResolver.java` | shared `X-Forwarded-For` resolution used by both the REST and WebSocket paths |
+| `security/TokenService.java` | issues/verifies the signed session tokens `AuthController` hands out |
+| `security/AuthRateLimiter.java` | per-IP login lockout + request rate limiting for `AuthController` |
 | `websocket/ChatWebSocketHandler.java` | per-IP connection limiting, session lifecycle (replaces `Server.java`) |
 | `websocket/ClientIpHandshakeInterceptor.java` | resolves the real client IP from `X-Forwarded-For` behind a reverse proxy, falling back to the raw remote address for direct connections |
-| `websocket/ClientHandler.java` | per-connection protocol/business logic (auth, messaging, friends, blocking, themes, profile) |
+| `websocket/TokenAuthHandshakeInterceptor.java` | rejects the WS handshake (401) unless `?token=` is a valid, unexpired session token |
+| `websocket/ClientHandler.java` | per-connection business logic for an already-authenticated user (messaging, friends, blocking, themes, profile) |
 | `dao/UserDAO.java`, `MessageDAO.java`, `FriendshipDAO.java`, `BlockedUserDAO.java` | data access, raw JDBC over a Spring-managed `DataSource` |
 | `model/Message.java` | message model, shared with the wire protocol |
-| `model/ChatTheme.java` | bubble/background/UI theme catalogs + defaults |
+| `model/ChatTheme.java` | bubble/background/UI theme catalogs + defaults, also served over `/api/themes` |
 | `src/main/resources/schema.sql` | database schema (Postgres) |
 | `src/main/resources/application.yml` | server port, datasource, HikariCP tuning |

@@ -1,5 +1,6 @@
 package com.messenger.backend.websocket;
 
+import com.messenger.backend.web.ClientIpResolver;
 import org.springframework.http.server.ServerHttpRequest;
 import org.springframework.http.server.ServerHttpResponse;
 import org.springframework.web.socket.WebSocketHandler;
@@ -35,21 +36,12 @@ public class ClientIpHandshakeInterceptor implements HandshakeInterceptor {
     @Override
     public boolean beforeHandshake(ServerHttpRequest request, ServerHttpResponse response,
                                     WebSocketHandler wsHandler, Map<String, Object> attributes) {
-        String ip = null;
+        String forwardedFor = request.getHeaders().getFirst("X-Forwarded-For");
+        String remoteAddress = (request.getRemoteAddress() != null)
+                ? request.getRemoteAddress().getAddress().getHostAddress()
+                : null;
 
-        if (trustProxyHeaders) {
-            String forwardedFor = request.getHeaders().getFirst("X-Forwarded-For");
-            if (forwardedFor != null && !forwardedFor.isBlank()) {
-                String[] hops = forwardedFor.split(",");
-                ip = hops[hops.length - 1].trim();
-            }
-        }
-
-        if (ip == null || ip.isEmpty()) {
-            ip = (request.getRemoteAddress() != null)
-                    ? request.getRemoteAddress().getAddress().getHostAddress()
-                    : "unknown";
-        }
+        String ip = ClientIpResolver.resolve(forwardedFor, remoteAddress, trustProxyHeaders);
 
         attributes.put(CLIENT_IP_ATTRIBUTE, ip);
         return true;

@@ -2,11 +2,14 @@ package com.messenger.backend.integration;
 
 import com.google.gson.Gson;
 import com.messenger.backend.model.Message;
+import com.messenger.backend.web.AuthController;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.web.socket.TextMessage;
@@ -34,10 +37,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 // Единственият тест в проекта, който минава през ЦЕЛИЯ стек по реалния
-// transport (StandardWebSocketClient -> вграден Tomcat -> ChatWebSocketHandler
-// -> ClientHandler -> DAOs -> Testcontainers Postgres), не директни method
-// call-ове на ClientHandler. Покрива register -> login -> message round trip
-// на wire протокола (AUTH_REGISTER|.../AUTH_LOGIN|..., после JSON "message").
+// transport: REST register/login (StandardWebSocketClient's HTTP-и не влизат
+// в тая част, ползваме TestRestTemplate за AuthController) -> token ->
+// StandardWebSocketClient -> вграден Tomcat -> TokenAuthHandshakeInterceptor
+// -> ChatWebSocketHandler -> ClientHandler -> DAOs -> Testcontainers Postgres.
+// Auth вече е изцяло REST (виж README "REST auth, WebSocket само за
+// чат/съобщения") — сокетът не приема повече "AUTH_LOGIN|..." pre-auth
+// команди, само "?token=" на handshake-а.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Testcontainers
 class WebSocketProtocolIT {
@@ -50,6 +56,11 @@ class WebSocketProtocolIT {
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
+        // TokenService изисква тоя property (виж BackendApplication.main()'s
+        // AUTH_TOKEN_SECRET проверка) — фиксирана тестова стойност, замества
+        // application.yml's "${AUTH_TOKEN_SECRET:}" placeholder изцяло, без
+        // нужда от реална env variable по време на тестове.
+        registry.add("app.security.auth-token-secret", () -> "test-secret-do-not-use-in-production");
     }
 
     // Прилагаме schema.sql директно с JDBC, ПРЕДИ Spring контекста да
@@ -74,34 +85,46 @@ class WebSocketProtocolIT {
     @LocalServerPort
     private int port;
 
+    private TestRestTemplate restTemplate;
+
     private final Gson gson = new Gson();
 
     @Test
     @Timeout(30)
     void registerLoginAndMessageRoundTrip() throws Exception {
+        restTemplate = new TestRestTemplate();
         String username = "wsuser" + (System.nanoTime() % 100_000);
         String password = "password123";
+        String baseUrl = "http://localhost:" + port;
+
+        ResponseEntity<Void> registerResponse = restTemplate.postForEntity(
+                baseUrl + "/api/auth/register",
+                new AuthController.RegisterRequest(username, password, "Favorite color?", "blue"),
+                Void.class);
+        assertEquals(200, registerResponse.getStatusCode().value());
+
+        ResponseEntity<AuthController.LoginResponse> loginResponse = restTemplate.postForEntity(
+                baseUrl + "/api/auth/login",
+                new AuthController.LoginRequest(username, password),
+                AuthController.LoginResponse.class);
+        assertEquals(200, loginResponse.getStatusCode().value());
+        String token = loginResponse.getBody().token();
+        assertNotNull(token);
+        assertEquals(username, loginResponse.getBody().username());
 
         RecordingHandler handler = new RecordingHandler();
         StandardWebSocketClient client = new StandardWebSocketClient();
         WebSocketSession session = client.execute(handler, new WebSocketHttpHeaders(),
-                URI.create("ws://localhost:" + port + "/ws")).get(10, TimeUnit.SECONDS);
+                URI.create("ws://localhost:" + port + "/ws?token=" + token)).get(10, TimeUnit.SECONDS);
 
         try {
-            session.sendMessage(new TextMessage(
-                    "AUTH_REGISTER|" + username + "|" + password + "|Favorite color?|blue"));
-            assertEquals("AUTH_REGISTER_OK", handler.next());
-
-            session.sendMessage(new TextMessage("AUTH_LOGIN|" + username + "|" + password));
-            assertEquals("AUTH_OK|" + username, handler.next());
-
             Message outgoing = new Message();
             outgoing.type = "message";
             outgoing.text = "hello from integration test";
             outgoing.room = "global";
             session.sendMessage(new TextMessage(gson.toJson(outgoing)));
 
-            // Login-ът вече е пуснал история/friend_list/pending_requests/
+            // Connect-ът вече е пуснал история/friend_list/pending_requests/
             // theme_update/blocked_list/profile_info/dm_conversations, join
             // system съобщение, и online_users/avatar_directory по сокета —
             // прескачаме ги, докато не видим ехото на нашето собствено "message".
@@ -121,6 +144,22 @@ class WebSocketProtocolIT {
             assertTrue(echoed.timestamp.endsWith("Z"), "timestamp not UTC/Z: " + echoed.timestamp);
         } finally {
             session.close();
+        }
+    }
+
+    @Test
+    @Timeout(30)
+    void connectingWithoutATokenIsRejected() throws Exception {
+        RecordingHandler handler = new RecordingHandler();
+        StandardWebSocketClient client = new StandardWebSocketClient();
+
+        try {
+            client.execute(handler, new WebSocketHttpHeaders(),
+                    URI.create("ws://localhost:" + port + "/ws")).get(10, TimeUnit.SECONDS);
+            fail("handshake should have been rejected without a valid ?token=");
+        } catch (Exception expected) {
+            // TokenAuthHandshakeInterceptor отказва handshake-а (401) — самото
+            // свързване хвърля изключение, точно това тестваме тук.
         }
     }
 

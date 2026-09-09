@@ -7,7 +7,6 @@ import com.messenger.backend.dao.MessageDAO;
 import com.messenger.backend.dao.UserDAO;
 import com.messenger.backend.model.ChatTheme;
 import com.messenger.backend.model.Message;
-import com.messenger.backend.validation.UsernameValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.socket.TextMessage;
@@ -15,9 +14,6 @@ import org.springframework.web.socket.WebSocketSession;
 
 import java.time.Instant;
 import java.util.*;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
 public class ClientHandler {
 
@@ -31,12 +27,11 @@ public class ClientHandler {
     private final String clientIp;
     // volatile — четени от ЧУЖДИ нишки без synchronized(lock): broadcastToRoom
     // чете ch.currentRoom за всеки клиент в snapshot-а, а onlineUsers мапата
-    // излага username/authenticated на broadcaster нишки, различни от тая,
-    // която ги пише (login/room_join/rename). Без volatile, промяна на
-    // currentRoom при смяна на стая може да не се вижда веднага от друга
-    // нишка — съобщение отива в старата стая или се губи.
+    // излага username на broadcaster нишки, различни от тая, която го пише
+    // (rename). Без volatile, промяна на currentRoom при смяна на стая може
+    // да не се вижда веднага от друга нишка — съобщение отива в старата стая
+    // или се губи.
     private volatile String username;
-    private volatile boolean authenticated = false;
     private volatile boolean kicked = false;      // true само при force-disconnect от duplicate login
     private volatile boolean alreadyClosed = false;
 
@@ -62,91 +57,24 @@ public class ClientHandler {
     private static final int MAX_MESSAGE_LENGTH = 2000;
     private static final int MAX_ROOM_NAME_LENGTH = 100;
 
-    // ANTI-BRUTE-FORCE: проследяваме неуспешни login опити ПО IP адрес,
-    // не по username — иначе атакуващ просто пробва различни username-и и
-    // бипасва лимита. Статична мапа, споделена между всички connections.
-    private static final Map<String, LoginAttemptTracker> loginAttemptsByIp = new HashMap<>();
-    private static final int MAX_LOGIN_ATTEMPTS = 5;
-    private static final long LOGIN_LOCKOUT_MS = 60_000; // 1 минута lockout след превишен лимит
-
-    private static class LoginAttemptTracker {
-        int failedAttempts = 0;
-        long lockedUntil = 0;
-        long lastAttemptAt = System.currentTimeMillis();
-    }
-
-    // PRE-AUTH RATE LIMIT — checkRateLimit() по-долу важи само СЛЕД auth.
-    // AUTH_REGISTER е 2х bcrypt hashing на Tomcat нишка, а pre-auth-ът нямаше
-    // никакъв лимит — неограничена регистрация на акаунти И CPU DoS с едно и
-    // също действие. Лимитираме по IP, важи за ВСяка pre-auth команда.
-    private static final Map<String, PreAuthRateWindow> preAuthRateByIp = new HashMap<>();
-    private static final int PRE_AUTH_RATE_LIMIT_MAX = 20;
-    private static final long PRE_AUTH_RATE_LIMIT_WINDOW_MS = 10_000;
-
-    private static class PreAuthRateWindow {
-        int count = 0;
-        long windowStart = System.currentTimeMillis();
-    }
-
-    // ПОЧИСТВАНЕ: loginAttemptsByIp/preAuthRateByIp никога не се чистят сами —
-    // всеки нов IP добавя запис, който стои завинаги (merge(ip, -1) в
-    // connectionsPerIp имаше същия проблем, оправено в ChatWebSocketHandler).
-    // Периодично метем записите, неактивни достатъчно дълго, за да не растат
-    // мапите неограничено с уникални/спуфнати IP-та във времето.
-    private static final long CLEANUP_INTERVAL_MIN = 10;
-    private static final long STALE_LOGIN_TRACKER_MS = 30 * 60_000; // 30 мин неактивност
-    private static final long STALE_RATE_WINDOW_MS = 5 * 60_000;    // 5 мин неактивност
-
-    static {
-        ScheduledExecutorService cleanup = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "clienthandler-ip-map-cleanup");
-            t.setDaemon(true);
-            return t;
-        });
-        cleanup.scheduleAtFixedRate(ClientHandler::cleanupStaleIpEntries,
-                CLEANUP_INTERVAL_MIN, CLEANUP_INTERVAL_MIN, TimeUnit.MINUTES);
-    }
-
-    private static void cleanupStaleIpEntries() {
-        long now = System.currentTimeMillis();
-
-        synchronized (loginAttemptsByIp) {
-            loginAttemptsByIp.entrySet().removeIf(entry ->
-                    now >= entry.getValue().lockedUntil
-                            && now - entry.getValue().lastAttemptAt > STALE_LOGIN_TRACKER_MS);
-        }
-
-        synchronized (preAuthRateByIp) {
-            preAuthRateByIp.entrySet().removeIf(entry ->
-                    now - entry.getValue().windowStart > STALE_RATE_WINDOW_MS);
-        }
-    }
-
-    private boolean checkPreAuthRateLimit(String ip) {
-        synchronized (preAuthRateByIp) {
-            PreAuthRateWindow w = preAuthRateByIp.computeIfAbsent(ip, k -> new PreAuthRateWindow());
-            long now = System.currentTimeMillis();
-            if (now - w.windowStart > PRE_AUTH_RATE_LIMIT_WINDOW_MS) {
-                w.windowStart = now;
-                w.count = 0;
-            }
-            w.count++;
-            return w.count <= PRE_AUTH_RATE_LIMIT_MAX;
-        }
-    }
-
     private final Runnable onDisconnectCallback;
 
     // clientIp се подава готов от ChatWebSocketHandler (виж класа за защо —
     // WebSocketSession.getRemoteAddress() зад reverse proxy връща IP-то на
     // прокси-то, не на клиента, затова резолвирането става там чрез
-    // X-Forwarded-For, не тук).
-    public ClientHandler(WebSocketSession session, String clientIp, Runnable onDisconnectCallback,
+    // X-Forwarded-For, не тук). username идва вече проверен от
+    // TokenAuthHandshakeInterceptor — auth минава изцяло през REST
+    // (AuthController) преди сокетът дори да се отвори, затова тук вече няма
+    // pre-auth фаза: всяка ClientHandler инстанция е автентикирана от самото
+    // си създаване.
+    public ClientHandler(WebSocketSession session, String clientIp, String username,
+                          Runnable onDisconnectCallback,
                           MessageDAO messageDAO, UserDAO userDAO,
                           FriendshipDAO friendshipDAO, BlockedUserDAO blockedUserDAO) {
         this.session = session;
         this.onDisconnectCallback = onDisconnectCallback;
         this.clientIp = clientIp;
+        this.username = username;
         this.messageDAO = messageDAO;
         this.userDAO = userDAO;
         this.friendshipDAO = friendshipDAO;
@@ -160,12 +88,7 @@ public class ClientHandler {
     // ════════════════════════════════════════════════════════════
     public void handleIncoming(String rawMessage) {
         if (rawMessage == null) return;
-
-        if (!authenticated) {
-            handlePreAuthMessage(rawMessage);
-        } else {
-            handleChatMessage(rawMessage);
-        }
+        handleChatMessage(rawMessage);
     }
 
     // Извиква се от ChatWebSocketHandler.afterConnectionClosed() — тук се
@@ -176,10 +99,10 @@ public class ClientHandler {
 
         removeClientHandler();
 
-        // "has left the chat" само за естествен disconnect на логнат
-        // потребител — НЕ и когато е kick-нат заради duplicate login
-        // (старата логика също не пращаше leave съобщение в тоя случай).
-        if (authenticated && !kicked) {
+        // "has left the chat" само за естествен disconnect — НЕ и когато е
+        // kick-нат заради duplicate login (старата логика също не пращаше
+        // leave съобщение в тоя случай).
+        if (!kicked) {
             log.info("Client disconnected: {}", username);
             // Козметична бележка: ако потребителят се е преименувал по-рано в
             // тая сесия, "has entered"/"has left" текстовете за него в
@@ -200,105 +123,15 @@ public class ClientHandler {
     }
 
     // ════════════════════════════════════════════════════════════
-    // PRE-AUTH — login/register/password reset. Протокол:
-    // "AUTH_LOGIN|username|password"
-    // "AUTH_REGISTER|username|password|securityQuestion|securityAnswer"
-    // "AUTH_RESET_GET_QUESTION|username" -> връща въпроса
-    // "AUTH_RESET_VERIFY|username|answer|newPassword" -> reset, ако верен
+    // START — извиква се от ChatWebSocketHandler веднага след конструиране,
+    // щом handshake-ът е минал (виж TokenAuthHandshakeInterceptor). Преди
+    // login/register/reset минаваха по самия socket ("AUTH_LOGIN|user|pass"
+    // и т.н., виж README/git история) — сега целият auth е REST
+    // (AuthController), а connection-ът винаги е за вече автентикиран
+    // потребител, затова тук няма нищо повече от "регистрирай ме като online
+    // и ми пусни началния snapshot".
     // ════════════════════════════════════════════════════════════
-    private void handlePreAuthMessage(String authLine) {
-        if (!checkPreAuthRateLimit(clientIp)) {
-            sendAuthResponse("AUTH_FAIL|Too many requests. Please slow down.");
-            return;
-        }
-
-        if (authLine.length() > 500) {
-            sendAuthResponse("AUTH_FAIL|Request too long");
-            return;
-        }
-
-        String[] parts = authLine.split("\\|");
-        if (parts.length == 0) {
-            sendAuthResponse("AUTH_FAIL|Invalid request");
-            return;
-        }
-
-        String command = parts[0];
-
-        switch (command) {
-            case "AUTH_LOGIN" -> {
-                if (parts.length < 3) { sendAuthResponse("AUTH_FAIL|Malformed login request"); return; }
-                if (handleAuthLogin(parts[1], parts[2], clientIp)) {
-                    completeLogin();
-                }
-            }
-            case "AUTH_REGISTER" -> {
-                if (parts.length < 5) { sendAuthResponse("AUTH_FAIL|Malformed register request"); return; }
-                handleAuthRegister(parts[1], parts[2], parts[3], parts[4]);
-            }
-            case "AUTH_RESET_GET_QUESTION" -> {
-                if (parts.length < 2) { sendAuthResponse("AUTH_FAIL|Malformed request"); return; }
-                handleResetGetQuestion(parts[1]);
-            }
-            case "AUTH_RESET_VERIFY" -> {
-                if (parts.length < 4) { sendAuthResponse("AUTH_FAIL|Malformed request"); return; }
-                handleResetVerify(parts[1], parts[2], parts[3]);
-            }
-            default -> sendAuthResponse("AUTH_FAIL|Unknown command");
-        }
-    }
-
-    private void sendAuthResponse(String text) {
-        sendRaw(text);
-    }
-
-    private boolean handleAuthLogin(String usernameAttempt, String password, String clientIp) {
-        if (usernameAttempt == null || usernameAttempt.length() > 50
-                || password == null || password.length() > 200) {
-            sendAuthResponse("AUTH_FAIL|Invalid input");
-            return false;
-        }
-
-        synchronized (loginAttemptsByIp) {
-            LoginAttemptTracker tracker = loginAttemptsByIp.computeIfAbsent(clientIp, k -> new LoginAttemptTracker());
-            long now = System.currentTimeMillis();
-
-            if (now < tracker.lockedUntil) {
-                long secondsLeft = (tracker.lockedUntil - now) / 1000 + 1;
-                sendAuthResponse("AUTH_FAIL|Too many attempts. Try again in " + secondsLeft + "s");
-                return false;
-            }
-
-            UserDAO.AuthResult result = userDAO.authenticate(usernameAttempt, password);
-
-            if (result == UserDAO.AuthResult.SUCCESS) {
-                loginAttemptsByIp.remove(clientIp);
-                this.username = usernameAttempt;
-                this.authenticated = true;
-                sendAuthResponse("AUTH_OK|" + usernameAttempt);
-                return true;
-            } else if (result == UserDAO.AuthResult.ERROR) {
-                // Базата е недостъпна — НЕ броим това като неуспешен опит
-                // (иначе временен DB blip би заключил легитимни потребители).
-                sendAuthResponse("AUTH_FAIL|Service temporarily unavailable. Please try again.");
-                return false;
-            } else {
-                tracker.failedAttempts++;
-                tracker.lastAttemptAt = now;
-                if (tracker.failedAttempts >= MAX_LOGIN_ATTEMPTS) {
-                    tracker.lockedUntil = now + LOGIN_LOCKOUT_MS;
-                    sendAuthResponse("AUTH_FAIL|Too many failed attempts. Locked for 60s.");
-                } else {
-                    sendAuthResponse("AUTH_FAIL|Wrong username or password");
-                }
-                return false;
-            }
-        }
-    }
-
-    // Извиква се веднага след успешен handleAuthLogin — регистрира клиента
-    // като online, праща началните push-ове и broadcast-ва "entered the chat".
-    private void completeLogin() {
+    public void start() {
         this.myColor = userDAO.ensureUserColor(this.username);
         this.myAvatarId = userDAO.getAvatarId(this.username);
 
@@ -328,79 +161,6 @@ public class ClientHandler {
 
         messageDAO.saveMessage(join);
         broadcastToRoom(join.room, gson.toJson(join));
-    }
-
-    // Email параметърът е премахнат — регистрацията вече не изисква имейл.
-    private void handleAuthRegister(String newUsername, String password,
-                                      String securityQuestion, String securityAnswer) {
-
-        if (!UsernameValidator.isValid(newUsername)) {
-            sendAuthResponse("AUTH_FAIL|Username must be 3-30 characters, letters and digits only");
-            return;
-        }
-        if (password == null || password.length() < 6) {
-            sendAuthResponse("AUTH_FAIL|Password must be at least 6 characters");
-            return;
-        }
-        if (securityQuestion == null || securityQuestion.trim().isEmpty()
-                || securityAnswer == null || securityAnswer.trim().isEmpty()) {
-            sendAuthResponse("AUTH_FAIL|Security question and answer are required");
-            return;
-        }
-
-        boolean ok = userDAO.registerUserWithSecurityQuestion(
-                newUsername.trim(), password, securityQuestion.trim(), securityAnswer.trim());
-
-        if (ok) {
-            sendAuthResponse("AUTH_REGISTER_OK");
-        } else {
-            sendAuthResponse("AUTH_FAIL|Username already exists or registration failed");
-        }
-    }
-
-    private void handleResetGetQuestion(String forUsername) {
-        String question = userDAO.getSecurityQuestion(forUsername);
-        if (question == null) {
-            sendAuthResponse("AUTH_FAIL|No account found or no security question set");
-        } else {
-            sendAuthResponse("AUTH_RESET_QUESTION|" + question);
-        }
-    }
-
-    private void handleResetVerify(String forUsername, String answer, String newPassword) {
-        if (newPassword == null || newPassword.length() < 6) {
-            sendAuthResponse("AUTH_FAIL|Password must be at least 6 characters");
-            return;
-        }
-        if (forUsername == null || forUsername.length() > 50 || answer == null || answer.length() > 200) {
-            sendAuthResponse("AUTH_FAIL|Invalid input");
-            return;
-        }
-
-        synchronized (loginAttemptsByIp) {
-            LoginAttemptTracker tracker = loginAttemptsByIp.computeIfAbsent("reset:" + clientIp, k -> new LoginAttemptTracker());
-            long now = System.currentTimeMillis();
-
-            if (now < tracker.lockedUntil) {
-                long secondsLeft = (tracker.lockedUntil - now) / 1000 + 1;
-                sendAuthResponse("AUTH_FAIL|Too many attempts. Try again in " + secondsLeft + "s");
-                return;
-            }
-
-            boolean ok = userDAO.resetPasswordWithSecurityAnswer(forUsername, answer, newPassword);
-
-            if (ok) {
-                loginAttemptsByIp.remove("reset:" + clientIp);
-                sendAuthResponse("AUTH_RESET_OK");
-            } else {
-                tracker.failedAttempts++;
-                tracker.lastAttemptAt = now;
-                if (tracker.failedAttempts >= MAX_LOGIN_ATTEMPTS) {
-                    tracker.lockedUntil = now + LOGIN_LOCKOUT_MS;
-                }
-                sendAuthResponse("AUTH_FAIL|Incorrect answer");
-            }
-        }
     }
 
     // ISO-8601 (UTC), не "HH:mm" — виж MessageDAO/schema.sql за същата смяна

@@ -77,16 +77,33 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             return;
         }
 
+        // TokenAuthHandshakeInterceptor вече е отказал handshake-а (401) при
+        // липсващ/невалиден token, значи тук username винаги е налично — но
+        // не се доверяваме мълчаливо: липсата му тук би значела счупен
+        // interceptor wiring, не невалидна заявка, затова затваряме отбранително.
+        Object usernameAttr = session.getAttributes().get(TokenAuthHandshakeInterceptor.USERNAME_ATTRIBUTE);
+        if (usernameAttr == null) {
+            log.error("WebSocket session established without an authenticated username — closing");
+            decrementConnectionCount(ip);
+            try {
+                session.close(CloseStatus.SERVER_ERROR);
+            } catch (Exception ignored) {
+            }
+            return;
+        }
+        String username = usernameAttr.toString();
+
         log.info("A new client has connected from {}", ip);
 
         WebSocketSession threadSafeSession = new ConcurrentWebSocketSessionDecorator(
                 session, SEND_TIME_LIMIT_MS, SEND_BUFFER_SIZE_LIMIT_BYTES);
 
-        ClientHandler handler = new ClientHandler(threadSafeSession, ip, () ->
+        ClientHandler handler = new ClientHandler(threadSafeSession, ip, username, () ->
                 decrementConnectionCount(ip),
                 messageDAO, userDAO, friendshipDAO, blockedUserDAO
         );
         handlers.put(session, handler);
+        handler.start();
     }
 
     // Премахва изцяло записа при 0, вместо да го остави да виси с value 0
