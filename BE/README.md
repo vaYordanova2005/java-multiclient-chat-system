@@ -56,28 +56,25 @@ build:
   DAO or protocol changes; `./mvnw test` alone will silently skip these
   (Surefire's default include pattern doesn't match `*IT.java`).
 
-  **Verification status — being precise about what's actually confirmed:**
-  - The `UserDAO.changeUsername` transaction itself — the exact logic
-    `UserDaoChangeUsernameIT` exercises — has been run against a real
-    (local, disposable) Postgres instance with the compiled DAO classes and
-    passed: rename across all four targets, `friendships.requested_by`
-    surviving a rename with the pending request still acceptable, rollback
-    on `ALREADY_TAKEN` restoring `messages.sender` too, and the UTC/`Z`
-    timestamp format. The DAO code itself is confirmed correct.
-  - What that run did **not** confirm is `UserDaoChangeUsernameIT` running
-    end-to-end *through Testcontainers via `./mvnw verify` in this repo* —
-    that specific automation path (this test class + Failsafe +
-    Testcontainers wiring) has only been exercised up to failing on "no
-    Docker daemon" in the environment these changes were authored in. Given
-    the underlying logic is verified, it's expected to pass, but the test
-    file and its plumbing haven't been run themselves.
-  - `WebSocketProtocolIT` is fully unverified either way — neither its
-    logic nor the automation around it has been run against anything real
-    yet.
+  **Verification status.** `./mvnw verify` — the full lifecycle including
+  both `*IT` classes against a real Testcontainers Postgres — completes
+  green in CI (first successful run: commit `9a7ea19` on `fix/BE`). Before
+  that, the integration tests had never executed anywhere, because no dev
+  machine on this project has a Docker daemon; see "Where `verify` actually
+  runs" below for why CI is the place this happens.
 
-  Bottom line: don't assume a clean `./mvnw verify` until it has actually
-  run somewhere with Docker available. That's the remaining gap — not
-  whether `changeUsername` works.
+  Independently of the CI run, the `UserDAO.changeUsername` transaction was
+  also exercised directly against a local disposable Postgres with the
+  compiled DAO classes: rename propagating across all four targets,
+  `friendships.requested_by` surviving a rename with the pending request
+  still acceptable afterwards, rollback on `ALREADY_TAKEN` restoring
+  `messages.sender` and not just the `users` row, and the UTC/`Z` timestamp
+  format on loaded history.
+
+  If you need to confirm what a given CI run actually executed rather than
+  trusting a green check, download the `test-reports` artifact from the
+  Actions run — the Failsafe reports list the `*IT` classes and their
+  assertion counts.
 
 ### Where `verify` actually runs
 
