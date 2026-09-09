@@ -1,19 +1,32 @@
+package com.messenger.backend.dao;
+
+import org.springframework.stereotype.Repository;
+
+import javax.sql.DataSource;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 
+@Repository
 public class BlockedUserDAO {
 
-    // Credentials-ите вече НЕ са тук — виж Database.java
+    private final DataSource dataSource;
+
+    public BlockedUserDAO(DataSource dataSource) {
+        this.dataSource = dataSource;
+    }
+
     private Connection getConnection() throws SQLException {
-        return Database.getConnection();
+        return dataSource.getConnection();
     }
 
     // Блокира потребител (еднопосочно — blocker не вижда blocked)
     public boolean blockUser(String blocker, String blocked) {
         if (blocker.equals(blocked)) return false;
 
-        String sql = "INSERT IGNORE INTO blocked_users (blocker, blocked) VALUES (?, ?)";
+        // Постгрес няма "INSERT IGNORE" (MySQL-only) — еквивалентът е
+        // ON CONFLICT DO NOTHING на уникалния (blocker, blocked) чифт.
+        String sql = "INSERT INTO blocked_users (blocker, blocked) VALUES (?, ?) ON CONFLICT (blocker, blocked) DO NOTHING";
 
         try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {

@@ -1,0 +1,17 @@
+server:
+  port: ${PORT:5000}
+
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/chatdb}
+    username: ${DB_USER:chatapp_user}
+    password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 8
+      minimum-idle: 2
+      connection-timeout: 10000
+      idle-timeout: 300000
+      max-lifetime: 1800000
+  # schema.sql is NOT auto-applied against this (real, non-embedded) datasource —
+  # spring.sql.init.mode defaults to "embedded". Run schema.sql manually; see
+  # BE/README.md. Do not set this to "always" against a live Neon database.

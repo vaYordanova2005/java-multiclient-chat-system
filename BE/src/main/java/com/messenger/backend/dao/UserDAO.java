@@ -1,13 +1,24 @@
+package com.messenger.backend.dao;
+
+import com.messenger.backend.model.ChatTheme;
+import org.mindrot.jbcrypt.BCrypt;
+import org.springframework.stereotype.Repository;
+
+import javax.sql.DataSource;
 import java.sql.*;
 import java.util.Random;
-import org.mindrot.jbcrypt.BCrypt;
 
+@Repository
 public class UserDAO {
 
-    // Credentials-ите вече НЕ са тук — виж Database.java (чете ги от
-    // environment variables, не от кода). Виж коментара там за детайли.
+    private final DataSource dataSource;
+
+    public UserDAO(DataSource dataSource) {
+        this.dataSource = dataSource;
+    }
+
     private Connection getConnection() throws SQLException {
-        return Database.getConnection();
+        return dataSource.getConnection();
     }
 
     // Генерира случаен HEX цвят — извиква се ВЕДНЪЖ, при регистрация.

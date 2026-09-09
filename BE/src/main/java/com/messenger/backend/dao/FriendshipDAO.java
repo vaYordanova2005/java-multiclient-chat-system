@@ -1,7 +1,13 @@
+package com.messenger.backend.dao;
+
+import org.springframework.stereotype.Repository;
+
+import javax.sql.DataSource;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 
+@Repository
 public class FriendshipDAO {
 
     public enum RequestResult {
@@ -13,9 +19,14 @@ public class FriendshipDAO {
         ERROR
     }
 
-    // Credentials-ите вече НЕ са тук — виж Database.java
+    private final DataSource dataSource;
+
+    public FriendshipDAO(DataSource dataSource) {
+        this.dataSource = dataSource;
+    }
+
     private Connection getConnection() throws SQLException {
-        return Database.getConnection();
+        return dataSource.getConnection();
     }
 
     // Нормализираме двойката alphabetically — винаги user_a < user_b

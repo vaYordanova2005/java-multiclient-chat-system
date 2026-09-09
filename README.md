@@ -19,6 +19,10 @@ not, so it's being replaced with a React frontend.
 
 ## Status
 
-Reorganization only, so far — no Spring Boot or React code has been written
-yet. `BE/` is plain Java copied from `legacy/`, not yet a Spring Boot
-project. `FE/` is empty.
+`BE/` is now a real (if minimal) Spring Boot Maven project — same wire
+protocol as `legacy/`, but running on Spring's WebSocket support and a
+Spring-managed DataSource instead of the standalone Java-WebSocket
+library/manual HikariCP singleton. Its schema (`BE/src/main/resources/schema.sql`)
+is clean, valid PostgreSQL, verified against a real Neon database. No REST
+endpoints yet, and no JPA — see [`BE/README.md`](BE/README.md) for what
+changed and what's intentionally still deferred. `FE/` is empty.

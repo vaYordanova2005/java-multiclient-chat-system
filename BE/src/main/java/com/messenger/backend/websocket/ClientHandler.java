@@ -1,8 +1,18 @@
-import java.util.*;
+package com.messenger.backend.websocket;
+
 import com.google.gson.Gson;
+import com.messenger.backend.dao.BlockedUserDAO;
+import com.messenger.backend.dao.FriendshipDAO;
+import com.messenger.backend.dao.MessageDAO;
+import com.messenger.backend.dao.UserDAO;
+import com.messenger.backend.model.ChatTheme;
+import com.messenger.backend.model.Message;
+import org.springframework.web.socket.TextMessage;
+import org.springframework.web.socket.WebSocketSession;
+
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
-import org.java_websocket.WebSocket;
+import java.util.*;
 
 public class ClientHandler {
 
@@ -10,7 +20,7 @@ public class ClientHandler {
     private static final Object lock = new Object();
     private static final Map<String, ClientHandler> onlineUsers = new HashMap<>();
 
-    private final WebSocket conn;
+    private final WebSocketSession session;
     private final String clientIp;
     private String username;
     private boolean authenticated = false;
@@ -21,10 +31,10 @@ public class ClientHandler {
 
     private Gson gson = new Gson();
 
-    private final MessageDAO messageDAO = new MessageDAO();
-    private final UserDAO userDAO = new UserDAO();
-    private final FriendshipDAO friendshipDAO = new FriendshipDAO();
-    private final BlockedUserDAO blockedUserDAO = new BlockedUserDAO();
+    private final MessageDAO messageDAO;
+    private final UserDAO userDAO;
+    private final FriendshipDAO friendshipDAO;
+    private final BlockedUserDAO blockedUserDAO;
 
     private String myColor;
     private String myAvatarId; // кеширан avatar на тази сесия — обновява се и при set_avatar
@@ -53,18 +63,26 @@ public class ClientHandler {
 
     private final Runnable onDisconnectCallback;
 
-    public ClientHandler(WebSocket conn, Runnable onDisconnectCallback) {
-        this.conn = conn;
+    // clientIp се подава готов от ChatWebSocketHandler (виж класа за защо —
+    // WebSocketSession.getRemoteAddress() зад reverse proxy връща IP-то на
+    // прокси-то, не на клиента, затова резолвирането става там чрез
+    // X-Forwarded-For, не тук).
+    public ClientHandler(WebSocketSession session, String clientIp, Runnable onDisconnectCallback,
+                          MessageDAO messageDAO, UserDAO userDAO,
+                          FriendshipDAO friendshipDAO, BlockedUserDAO blockedUserDAO) {
+        this.session = session;
         this.onDisconnectCallback = onDisconnectCallback;
-        this.clientIp = (conn.getRemoteSocketAddress() != null)
-                ? conn.getRemoteSocketAddress().getAddress().getHostAddress()
-                : "unknown";
+        this.clientIp = clientIp;
+        this.messageDAO = messageDAO;
+        this.userDAO = userDAO;
+        this.friendshipDAO = friendshipDAO;
+        this.blockedUserDAO = blockedUserDAO;
     }
 
     // ════════════════════════════════════════════════════════════
-    // ENTRY POINT — извиква се от ChatWebSocketServer.onMessage() за ВСЯКО
-    // пристигнало съобщение (не блокиращ readLine() loop както преди —
-    // WebSocket библиотеката сама управлява I/O нишките).
+    // ENTRY POINT — извиква се от ChatWebSocketHandler.handleTextMessage()
+    // за ВСЯКО пристигнало съобщение (не блокиращ readLine() loop както
+    // преди — Spring/Tomcat сами управляват I/O нишките).
     // ════════════════════════════════════════════════════════════
     public void handleIncoming(String rawMessage) {
         if (rawMessage == null) return;
@@ -76,8 +94,8 @@ public class ClientHandler {
         }
     }
 
-    // Извиква се от ChatWebSocketServer.onClose() — тук се случва цялото
-    // disconnect bookkeeping (преди беше в run()/runMessageLoop()'s finally).
+    // Извиква се от ChatWebSocketHandler.afterConnectionClosed() — тук се
+    // случва цялото disconnect bookkeeping (преди беше в run()/runMessageLoop()'s finally).
     public void onSocketClosed() {
         if (alreadyClosed) return;
         alreadyClosed = true;
@@ -417,11 +435,11 @@ public class ClientHandler {
     // ════════════════════════════════════════════════════════════
     private void sendRaw(String text) {
         try {
-            if (conn != null && conn.isOpen()) {
-                conn.send(text);
+            if (session != null && session.isOpen()) {
+                session.sendMessage(new TextMessage(text));
             }
         } catch (Exception ignored) {
-            // ако връзката реално е мъртва, onClose ще се погрижи за cleanup
+            // ако връзката реално е мъртва, afterConnectionClosed ще се погрижи за cleanup
         }
     }
 
@@ -906,6 +924,9 @@ public class ClientHandler {
                 onlineUsers.remove(this.username);
             }
         }
-        if (conn != null && conn.isOpen()) conn.close();
+        try {
+            if (session != null && session.isOpen()) session.close();
+        } catch (Exception ignored) {
+        }
     }
 }

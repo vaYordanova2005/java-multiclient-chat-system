@@ -1,6 +1,9 @@
 ﻿# Compiled bytecode
 *.class
 
+# Maven build output
+target/
+
 # Third-party dependency jars - not needed in git, download per README
 lib/
 

@@ -1,15 +1,26 @@
+package com.messenger.backend.dao;
+
 import com.google.gson.Gson;
+import com.messenger.backend.model.Message;
+import org.springframework.stereotype.Repository;
+
+import javax.sql.DataSource;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 
+@Repository
 public class MessageDAO {
 
     private final Gson gson = new Gson();
+    private final DataSource dataSource;
 
-    // Credentials-ите вече НЕ са тук — виж Database.java
+    public MessageDAO(DataSource dataSource) {
+        this.dataSource = dataSource;
+    }
+
     private Connection getConnection() throws SQLException {
-        return Database.getConnection();
+        return dataSource.getConnection();
     }
 
     // SAVE MESSAGE (public room OR dm) — приема готов Message обект,
