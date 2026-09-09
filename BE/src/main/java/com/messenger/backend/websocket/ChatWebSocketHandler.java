@@ -4,10 +4,13 @@ import com.messenger.backend.dao.BlockedUserDAO;
 import com.messenger.backend.dao.FriendshipDAO;
 import com.messenger.backend.dao.MessageDAO;
 import com.messenger.backend.dao.UserDAO;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
+import org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorator;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 import java.util.Map;
@@ -17,6 +20,17 @@ import java.util.concurrent.ConcurrentHashMap;
 // handler върху вградения Tomcat вместо отделен WebSocketServer стек.
 @Component
 public class ChatWebSocketHandler extends TextWebSocketHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(ChatWebSocketHandler.class);
+
+    // Spring's WebSocketSession.sendMessage() е explicitно НЕ thread-safe —
+    // broadcast-ващата нишка на потребител А и нишката, обработваща собствено
+    // съобщение на потребител B, могат едновременно да пишат в сесията на B
+    // (broadcastToRoom/broadcastOnlineUsers обхождат ВСИЧКИ клиенти). Без тоя
+    // decorator конкурентен write хвърля IllegalStateException
+    // ("TEXT_PARTIAL_WRITING") или чупи frame-ове насред запис.
+    private static final int SEND_TIME_LIMIT_MS = 10_000;
+    private static final int SEND_BUFFER_SIZE_LIMIT_BYTES = 512 * 1024;
 
     private final Map<WebSocketSession, ClientHandler> handlers = new ConcurrentHashMap<>();
 
@@ -54,8 +68,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         int currentCount = connectionsPerIp.merge(ip, 1, Integer::sum);
 
         if (currentCount > MAX_CONNECTIONS_PER_IP) {
-            System.out.println("Rejected connection from " + ip + " — too many concurrent connections");
-            connectionsPerIp.merge(ip, -1, Integer::sum);
+            log.info("Rejected connection from {} — too many concurrent connections", ip);
+            decrementConnectionCount(ip);
             try {
                 session.close();
             } catch (Exception ignored) {
@@ -63,13 +77,22 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        System.out.println("A new client has connected");
+        log.info("A new client has connected from {}", ip);
 
-        ClientHandler handler = new ClientHandler(session, ip, () ->
-                connectionsPerIp.merge(ip, -1, Integer::sum),
+        WebSocketSession threadSafeSession = new ConcurrentWebSocketSessionDecorator(
+                session, SEND_TIME_LIMIT_MS, SEND_BUFFER_SIZE_LIMIT_BYTES);
+
+        ClientHandler handler = new ClientHandler(threadSafeSession, ip, () ->
+                decrementConnectionCount(ip),
                 messageDAO, userDAO, friendshipDAO, blockedUserDAO
         );
         handlers.put(session, handler);
+    }
+
+    // Премахва изцяло записа при 0, вместо да го остави да виси с value 0
+    // завинаги — connectionsPerIp иначе расте без ограничение с всеки нов IP.
+    private void decrementConnectionCount(String ip) {
+        connectionsPerIp.compute(ip, (k, v) -> (v == null || v <= 1) ? null : v - 1);
     }
 
     @Override

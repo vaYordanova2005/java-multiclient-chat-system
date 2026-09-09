@@ -7,14 +7,21 @@ import com.messenger.backend.dao.MessageDAO;
 import com.messenger.backend.dao.UserDAO;
 import com.messenger.backend.model.ChatTheme;
 import com.messenger.backend.model.Message;
+import com.messenger.backend.validation.UsernameValidator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 
-import java.time.LocalTime;
-import java.time.format.DateTimeFormatter;
+import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 public class ClientHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(ClientHandler.class);
 
     private static ArrayList<ClientHandler> clientHandlers = new ArrayList<>();
     private static final Object lock = new Object();
@@ -59,6 +66,67 @@ public class ClientHandler {
     private static class LoginAttemptTracker {
         int failedAttempts = 0;
         long lockedUntil = 0;
+        long lastAttemptAt = System.currentTimeMillis();
+    }
+
+    // PRE-AUTH RATE LIMIT — checkRateLimit() по-долу важи само СЛЕД auth.
+    // AUTH_REGISTER е 2х bcrypt hashing на Tomcat нишка, а pre-auth-ът нямаше
+    // никакъв лимит — неограничена регистрация на акаунти И CPU DoS с едно и
+    // също действие. Лимитираме по IP, важи за ВСяка pre-auth команда.
+    private static final Map<String, PreAuthRateWindow> preAuthRateByIp = new HashMap<>();
+    private static final int PRE_AUTH_RATE_LIMIT_MAX = 20;
+    private static final long PRE_AUTH_RATE_LIMIT_WINDOW_MS = 10_000;
+
+    private static class PreAuthRateWindow {
+        int count = 0;
+        long windowStart = System.currentTimeMillis();
+    }
+
+    // ПОЧИСТВАНЕ: loginAttemptsByIp/preAuthRateByIp никога не се чистят сами —
+    // всеки нов IP добавя запис, който стои завинаги (merge(ip, -1) в
+    // connectionsPerIp имаше същия проблем, оправено в ChatWebSocketHandler).
+    // Периодично метем записите, неактивни достатъчно дълго, за да не растат
+    // мапите неограничено с уникални/спуфнати IP-та във времето.
+    private static final long CLEANUP_INTERVAL_MIN = 10;
+    private static final long STALE_LOGIN_TRACKER_MS = 30 * 60_000; // 30 мин неактивност
+    private static final long STALE_RATE_WINDOW_MS = 5 * 60_000;    // 5 мин неактивност
+
+    static {
+        ScheduledExecutorService cleanup = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "clienthandler-ip-map-cleanup");
+            t.setDaemon(true);
+            return t;
+        });
+        cleanup.scheduleAtFixedRate(ClientHandler::cleanupStaleIpEntries,
+                CLEANUP_INTERVAL_MIN, CLEANUP_INTERVAL_MIN, TimeUnit.MINUTES);
+    }
+
+    private static void cleanupStaleIpEntries() {
+        long now = System.currentTimeMillis();
+
+        synchronized (loginAttemptsByIp) {
+            loginAttemptsByIp.entrySet().removeIf(entry ->
+                    now >= entry.getValue().lockedUntil
+                            && now - entry.getValue().lastAttemptAt > STALE_LOGIN_TRACKER_MS);
+        }
+
+        synchronized (preAuthRateByIp) {
+            preAuthRateByIp.entrySet().removeIf(entry ->
+                    now - entry.getValue().windowStart > STALE_RATE_WINDOW_MS);
+        }
+    }
+
+    private boolean checkPreAuthRateLimit(String ip) {
+        synchronized (preAuthRateByIp) {
+            PreAuthRateWindow w = preAuthRateByIp.computeIfAbsent(ip, k -> new PreAuthRateWindow());
+            long now = System.currentTimeMillis();
+            if (now - w.windowStart > PRE_AUTH_RATE_LIMIT_WINDOW_MS) {
+                w.windowStart = now;
+                w.count = 0;
+            }
+            w.count++;
+            return w.count <= PRE_AUTH_RATE_LIMIT_MAX;
+        }
     }
 
     private final Runnable onDisconnectCallback;
@@ -106,7 +174,7 @@ public class ClientHandler {
         // потребител — НЕ и когато е kick-нат заради duplicate login
         // (старата логика също не пращаше leave съобщение в тоя случай).
         if (authenticated && !kicked) {
-            System.out.println("Client disconnected: " + username);
+            log.info("Client disconnected: {}", username);
             Message leave = new Message("system", "SERVER", "#b2bec3",
                     username + " has left the chat");
             leave.timestamp = getTime();
@@ -127,6 +195,11 @@ public class ClientHandler {
     // "AUTH_RESET_VERIFY|username|answer|newPassword" -> reset, ако верен
     // ════════════════════════════════════════════════════════════
     private void handlePreAuthMessage(String authLine) {
+        if (!checkPreAuthRateLimit(clientIp)) {
+            sendAuthResponse("AUTH_FAIL|Too many requests. Please slow down.");
+            return;
+        }
+
         if (authLine.length() > 500) {
             sendAuthResponse("AUTH_FAIL|Request too long");
             return;
@@ -184,16 +257,22 @@ public class ClientHandler {
                 return false;
             }
 
-            boolean ok = userDAO.loginUser(usernameAttempt, password);
+            UserDAO.AuthResult result = userDAO.authenticate(usernameAttempt, password);
 
-            if (ok) {
-                tracker.failedAttempts = 0;
+            if (result == UserDAO.AuthResult.SUCCESS) {
+                loginAttemptsByIp.remove(clientIp);
                 this.username = usernameAttempt;
                 this.authenticated = true;
                 sendAuthResponse("AUTH_OK|" + usernameAttempt);
                 return true;
+            } else if (result == UserDAO.AuthResult.ERROR) {
+                // Базата е недостъпна — НЕ броим това като неуспешен опит
+                // (иначе временен DB blip би заключил легитимни потребители).
+                sendAuthResponse("AUTH_FAIL|Service temporarily unavailable. Please try again.");
+                return false;
             } else {
                 tracker.failedAttempts++;
+                tracker.lastAttemptAt = now;
                 if (tracker.failedAttempts >= MAX_LOGIN_ATTEMPTS) {
                     tracker.lockedUntil = now + LOGIN_LOCKOUT_MS;
                     sendAuthResponse("AUTH_FAIL|Too many failed attempts. Locked for 60s.");
@@ -243,8 +322,8 @@ public class ClientHandler {
     private void handleAuthRegister(String newUsername, String password,
                                       String securityQuestion, String securityAnswer) {
 
-        if (newUsername == null || newUsername.trim().isEmpty() || newUsername.length() > 50) {
-            sendAuthResponse("AUTH_FAIL|Invalid username");
+        if (!UsernameValidator.isValid(newUsername)) {
+            sendAuthResponse("AUTH_FAIL|Username must be 3-30 characters, letters and digits only");
             return;
         }
         if (password == null || password.length() < 6) {
@@ -299,10 +378,11 @@ public class ClientHandler {
             boolean ok = userDAO.resetPasswordWithSecurityAnswer(forUsername, answer, newPassword);
 
             if (ok) {
-                tracker.failedAttempts = 0;
+                loginAttemptsByIp.remove("reset:" + clientIp);
                 sendAuthResponse("AUTH_RESET_OK");
             } else {
                 tracker.failedAttempts++;
+                tracker.lastAttemptAt = now;
                 if (tracker.failedAttempts >= MAX_LOGIN_ATTEMPTS) {
                     tracker.lockedUntil = now + LOGIN_LOCKOUT_MS;
                 }
@@ -311,8 +391,10 @@ public class ClientHandler {
         }
     }
 
+    // ISO-8601 (UTC), не "HH:mm" — виж MessageDAO/schema.sql за същата смяна
+    // на историческите съобщения. Тук е за live-генерираните (join/leave/error/...).
     private String getTime() {
-        return LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"));
+        return Instant.now().toString();
     }
 
     // =============================================
@@ -438,8 +520,11 @@ public class ClientHandler {
             if (session != null && session.isOpen()) {
                 session.sendMessage(new TextMessage(text));
             }
-        } catch (Exception ignored) {
-            // ако връзката реално е мъртва, afterConnectionClosed ще се погрижи за cleanup
+        } catch (Exception e) {
+            // Връзката е мъртва или буферът е препълнен (ConcurrentWebSocketSessionDecorator
+            // хвърля при overflow) — afterConnectionClosed ще се погрижи за cleanup, но
+            // логваме, за да не изчезва съобщение без следа.
+            log.warn("Failed to send message to {}: {}", username, e.toString());
         }
     }
 
@@ -495,11 +580,20 @@ public class ClientHandler {
             allUsernames = new ArrayList<>(onlineUsers.keySet());
         }
 
+        // ЕДНА заявка за show_online_status + avatar_id на ВСИЧКИ online
+        // потребители, вместо 2 отделни заявки на всеки от тях в цикъл.
+        Map<String, UserDAO.OnlineProfile> profiles = userDAO.getOnlineProfiles(allUsernames);
+
         // Privacy: филтрираме потребители, които са изключили "Show Online Status"
         List<String> visibleUsers = new ArrayList<>();
+        Map<String, String> avatarDirectory = new HashMap<>();
         for (String u : allUsernames) {
-            if (userDAO.getShowOnlineStatus(u)) {
+            UserDAO.OnlineProfile profile = profiles.get(u);
+            if (profile != null && profile.showOnlineStatus) {
                 visibleUsers.add(u);
+                if (profile.avatarId != null) {
+                    avatarDirectory.put(u, profile.avatarId);
+                }
             }
         }
 
@@ -515,14 +609,6 @@ public class ClientHandler {
 
         // Avatar directory — паралелна на online_users информация, за да
         // клиентите могат да рендират правилния avatar до всеки online контакт.
-        Map<String, String> avatarDirectory = new HashMap<>();
-        for (String u : visibleUsers) {
-            String avatarId = userDAO.getAvatarId(u);
-            if (avatarId != null) {
-                avatarDirectory.put(u, avatarId);
-            }
-        }
-
         Message avatarMsg = new Message();
         avatarMsg.type = "avatar_directory";
         avatarMsg.text = gson.toJson(avatarDirectory);
@@ -543,6 +629,22 @@ public class ClientHandler {
     // =============================================
     // VALIDATION & RATE LIMIT
     // =============================================
+
+    // Формат: "bubbleThemeId|backgroundThemeId|uiThemeId" (последните две са
+    // опционални — при липса се ползва default-ът). Всяко подадено ID трябва
+    // да съществува в ChatTheme каталога — иначе произволен стринг се записва
+    // директно в users.bubble_theme/background_theme/ui_theme (VARCHAR(30)
+    // без ограничение на съдържанието), а после клиентът не намира тема за
+    // тоя ID и не знае какво да рендира.
+    private boolean isValidThemeSelection(String text) {
+        if (text == null) return false;
+        String[] parts = text.split("\\|", 3);
+        if (parts.length == 0 || !ChatTheme.isValidBubbleThemeId(parts[0])) return false;
+        if (parts.length > 1 && !parts[1].isEmpty() && !ChatTheme.isValidBackgroundThemeId(parts[1])) return false;
+        if (parts.length > 2 && !parts[2].isEmpty() && !ChatTheme.isValidUiThemeId(parts[2])) return false;
+        return true;
+    }
+
     private boolean checkRateLimit() {
         long now = System.currentTimeMillis();
         if (now - rateLimitWindowStart > RATE_LIMIT_WINDOW_MS) {
@@ -590,7 +692,7 @@ public class ClientHandler {
                 return msg.text != null && !msg.text.trim().isEmpty();
 
             case "set_theme":
-                return msg.text != null && msg.text.contains("|");
+                return isValidThemeSelection(msg.text);
 
             case "change_username":
                 return msg.text != null && !msg.text.trim().isEmpty();

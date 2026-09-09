@@ -1,5 +1,7 @@
 package com.messenger.backend.dao;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Repository;
 
 import javax.sql.DataSource;
@@ -9,6 +11,8 @@ import java.util.List;
 
 @Repository
 public class FriendshipDAO {
+
+    private static final Logger log = LoggerFactory.getLogger(FriendshipDAO.class);
 
     public enum RequestResult {
         SUCCESS,
@@ -77,7 +81,7 @@ public class FriendshipDAO {
             return RequestResult.SUCCESS;
 
         } catch (SQLException e) {
-            e.printStackTrace();
+            log.error("Database error in FriendshipDAO", e);
             return RequestResult.ERROR;
         }
     }
@@ -106,7 +110,7 @@ public class FriendshipDAO {
             return rows > 0;
 
         } catch (SQLException e) {
-            e.printStackTrace();
+            log.error("Database error in FriendshipDAO", e);
             return false;
         }
     }
@@ -131,7 +135,7 @@ public class FriendshipDAO {
             return rows > 0;
 
         } catch (SQLException e) {
-            e.printStackTrace();
+            log.error("Database error in FriendshipDAO", e);
             return false;
         }
     }
@@ -166,7 +170,7 @@ public class FriendshipDAO {
             }
 
         } catch (SQLException e) {
-            e.printStackTrace();
+            log.error("Database error in FriendshipDAO", e);
         }
 
         return list;
@@ -200,7 +204,7 @@ public class FriendshipDAO {
             }
 
         } catch (SQLException e) {
-            e.printStackTrace();
+            log.error("Database error in FriendshipDAO", e);
         }
 
         return list;
@@ -221,7 +225,7 @@ public class FriendshipDAO {
             return stmt.executeQuery().next();
 
         } catch (SQLException e) {
-            e.printStackTrace();
+            log.error("Database error in FriendshipDAO", e);
             return false;
         }
     }
@@ -258,7 +262,7 @@ public class FriendshipDAO {
             }
 
         } catch (SQLException e) {
-            e.printStackTrace();
+            log.error("Database error in FriendshipDAO", e);
         }
 
         return list;
@@ -274,7 +278,7 @@ public class FriendshipDAO {
             stmt.setString(1, username);
             return stmt.executeQuery().next();
         } catch (SQLException e) {
-            e.printStackTrace();
+            log.error("Database error in FriendshipDAO", e);
             return false;
         }
     }

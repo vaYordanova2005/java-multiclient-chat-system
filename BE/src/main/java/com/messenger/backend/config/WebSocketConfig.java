@@ -2,6 +2,7 @@ package com.messenger.backend.config;
 
 import com.messenger.backend.websocket.ChatWebSocketHandler;
 import com.messenger.backend.websocket.ClientIpHandshakeInterceptor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.socket.config.annotation.EnableWebSocket;
 import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
@@ -16,9 +17,12 @@ import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry
 public class WebSocketConfig implements WebSocketConfigurer {
 
     private final ChatWebSocketHandler chatWebSocketHandler;
+    private final boolean trustProxyHeaders;
 
-    public WebSocketConfig(ChatWebSocketHandler chatWebSocketHandler) {
+    public WebSocketConfig(ChatWebSocketHandler chatWebSocketHandler,
+                            @Value("${app.security.trust-proxy-headers:false}") boolean trustProxyHeaders) {
         this.chatWebSocketHandler = chatWebSocketHandler;
+        this.trustProxyHeaders = trustProxyHeaders;
     }
 
     @Override
@@ -28,7 +32,7 @@ public class WebSocketConfig implements WebSocketConfigurer {
         // подразбиране би блокирал cross-origin връзки, а FE (отделен произход,
         // отделен deploy) все още не съществува, за да се знае неговия домейн.
         registry.addHandler(chatWebSocketHandler, "/ws")
-                .addInterceptors(new ClientIpHandshakeInterceptor())
+                .addInterceptors(new ClientIpHandshakeInterceptor(trustProxyHeaders))
                 .setAllowedOriginPatterns("*");
     }
 }

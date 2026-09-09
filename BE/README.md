@@ -49,7 +49,17 @@ $env:DB_URL      = "jdbc:postgresql://localhost:5432/chatdb"   # optional, this 
 $env:DB_USER     = "chatapp_user"                                # optional, defaults to "chatapp_user"
 $env:DB_PASSWORD = "your-postgres-password"                       # required, no default
 $env:PORT        = "5000"                                        # optional, defaults to 5000 (Render etc. inject this automatically)
+$env:TRUST_PROXY_HEADERS = "true"                                 # optional, defaults to false — see below
 ```
+
+`TRUST_PROXY_HEADERS` controls whether `X-Forwarded-For` is trusted to resolve
+the real client IP (used for the per-IP connection limit and login lockout).
+Leave it unset/`false` for local development and for any deployment with no
+reverse proxy in front of the app — trusting a client-supplied header there
+lets an attacker fake a different IP on every request and bypass both limits
+entirely. Only set it to `true` when the app is actually deployed behind
+exactly one trusted reverse proxy hop (e.g. Render) that sets this header
+itself; see `ClientIpHandshakeInterceptor` for the exact hop-selection logic.
 
 `DB_PASSWORD` is required — `BackendApplication.main()` checks for it before
 starting Spring and exits with a clear message if it's missing, same as
@@ -100,6 +110,18 @@ read and written it, so it must have existed out-of-band on whatever database
 those were actually run against. Recovered here from the code, not from the
 old migration log — worth knowing in case anything else was ever added to a
 live database the same way.
+
+## Known limitation: `deleteAccount` does not delete messages
+
+`UserDAO.deleteAccount` removes the `users` row (and the person's
+`friendships`/`blocked_users` rows) but deliberately leaves their past
+`messages` rows in place — the other participant in a conversation keeps
+their chat history instead of losing it just because the sender deleted
+their profile. After deletion, `messages.sender`/`receiver` still hold the
+deleted username as plain text, so old history remains readable, but that
+username is free to be registered again by someone else afterwards. This is
+a conscious trade-off, not an oversight — flagged here so it doesn't read as
+a bug later.
 
 ## Known limitation: `Message.java` / `ChatTheme.java` duplication
 
