@@ -1,87 +1,24 @@
-﻿# Java Multiclient Chat System
+# Java Multiclient Chat System
 
-> Proof that Java does it all: JavaFX on the frontend, a WebSocket server on the backend — one language, full stack.
+Chat app with public rooms, direct messages, friend requests, blocking,
+avatars, and customizable themes — being rebuilt from a JavaFX desktop app
+into a deployable web app.
 
-Desktop chat application built with Java + JavaFX, with a WebSocket server backend and PostgreSQL storage. Supports public rooms, direct messages, friend requests, blocking, avatars, and customizable UI/bubble/background themes.
+## Layout
 
-## Tech stack
+- **[`legacy/`](legacy/README.md)** — the original, fully working JavaFX desktop client + Java-WebSocket server + PostgreSQL app. Archived for reference; still buildable and runnable as-is.
+- **[`BE/`](BE/README.md)** — the backend going forward. Currently the reusable, non-UI parts of `legacy/` (server, DAOs, DB layer) copied out as a staging point for a Spring Boot rewrite.
+- **[`FE/`](FE/README.md)** — the frontend going forward. Not started yet — will be a React web client replacing the JavaFX UI so the app can run in a browser and be deployed.
 
-- **Client**: JavaFX (desktop UI)
-- **Server**: Java-WebSocket (event-driven WebSocket server)
-- **Database**: PostgreSQL (via HikariCP connection pool)
-- **Auth**: bcrypt password hashing (jBCrypt)
-- **JSON**: Gson
+## Why the rewrite
 
-## Prerequisites
+The JavaFX client only runs as a local desktop app — it can't be deployed
+and accessed like a normal web app. The backend logic (WebSocket server,
+auth, DAOs, PostgreSQL schema) is largely reusable as-is; the JavaFX UI is
+not, so it's being replaced with a React frontend.
 
-- JDK 21+
-- [JavaFX SDK](https://gluonhq.com/products/javafx/) (tested with 21.0.11)
-- PostgreSQL (local instance, or any hosted Postgres)
+## Status
 
-## Dependencies (`lib/`)
-
-Make sure `lib/` contains all of the following jars:
-
-`lib/` is gitignored — none of these ship in the repo, download them yourself:
-
-| Jar | Download |
-|---|---|
-| `gson.jar` (2.14.0) | https://repo1.maven.org/maven2/com/google/code/gson/gson/2.14.0/gson-2.14.0.jar |
-| `jbcrypt-0.4.jar` | https://repo1.maven.org/maven2/org/mindrot/jbcrypt/0.4/jbcrypt-0.4.jar |
-| `postgresql-42.7.12.jar` | https://jdbc.postgresql.org/download/ |
-| `Java-WebSocket-1.6.0.jar` | https://repo1.maven.org/maven2/org/java-websocket/Java-WebSocket/1.6.0/Java-WebSocket-1.6.0.jar |
-| `slf4j-api-2.0.17.jar` | https://repo1.maven.org/maven2/org/slf4j/slf4j-api/2.0.17/slf4j-api-2.0.17.jar |
-| `HikariCP-7.1.0.jar` | https://repo1.maven.org/maven2/com/zaxxer/HikariCP/7.1.0/HikariCP-7.1.0.jar |
-
-## Database setup
-
-1. Create a local Postgres database (default expected name: `chatdb`).
-2. Run `DB.sql` against it (creates all tables).
-
-## Environment variables
-
-The app reads DB credentials from environment variables — nothing is hardcoded.
-
-```powershell
-$env:DB_URL      = "jdbc:postgresql://localhost:5432/chatdb"   # optional, this is already the default
-$env:DB_USER     = "postgres"                                   # optional, defaults to "chatapp_user"
-$env:DB_PASSWORD = "your-local-postgres-password"                # required, no default
-```
-
-`DB_PASSWORD` is required — the app will refuse to start without it.
-
-## Build & run
-
-Compile everything:
-
-```powershell
-javac --module-path "C:\path\to\javafx-sdk\lib" --add-modules javafx.controls -cp ".;lib/gson.jar;lib/postgresql-42.7.12.jar;lib/jbcrypt-0.4.jar;lib/Java-WebSocket-1.6.0.jar;lib/slf4j-api-2.0.17.jar;lib/HikariCP-7.1.0.jar" *.java
-```
-
-Run the server (in one terminal, with the env vars above set):
-
-```powershell
-java -cp ".;lib/gson.jar;lib/postgresql-42.7.12.jar;lib/jbcrypt-0.4.jar;lib/Java-WebSocket-1.6.0.jar;lib/slf4j-api-2.0.17.jar;lib/HikariCP-7.1.0.jar" ServerMain
-```
-
-Run the client (in a separate terminal):
-
-```powershell
-java --module-path "C:\path\to\javafx-sdk\lib" --add-modules javafx.controls -cp ".;lib/gson.jar;lib/postgresql-42.7.12.jar;lib/jbcrypt-0.4.jar;lib/Java-WebSocket-1.6.0.jar;lib/slf4j-api-2.0.17.jar;lib/HikariCP-7.1.0.jar" Main
-```
-
-By default the client connects to `ws://localhost:5000`. To point it at a different server, set:
-
-```powershell
-$env:CHAT_SERVER_URL = "ws://your-server-address:5000"
-```
-
-## Features
-
-- Public chat room + 1-on-1 direct messages
-- Friend requests / accept / decline
-- Blocking users
-- Custom avatars
-- Bubble, background, and UI theme customization (swatch-based, persisted per account)
-- Online status with privacy toggle
-- Username change, account deletion
+Reorganization only, so far — no Spring Boot or React code has been written
+yet. `BE/` is plain Java copied from `legacy/`, not yet a Spring Boot
+project. `FE/` is empty.
