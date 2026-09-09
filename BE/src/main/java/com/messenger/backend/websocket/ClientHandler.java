@@ -29,12 +29,18 @@ public class ClientHandler {
 
     private final WebSocketSession session;
     private final String clientIp;
-    private String username;
-    private boolean authenticated = false;
+    // volatile — четени от ЧУЖДИ нишки без synchronized(lock): broadcastToRoom
+    // чете ch.currentRoom за всеки клиент в snapshot-а, а onlineUsers мапата
+    // излага username/authenticated на broadcaster нишки, различни от тая,
+    // която ги пише (login/room_join/rename). Без volatile, промяна на
+    // currentRoom при смяна на стая може да не се вижда веднага от друга
+    // нишка — съобщение отива в старата стая или се губи.
+    private volatile String username;
+    private volatile boolean authenticated = false;
     private volatile boolean kicked = false;      // true само при force-disconnect от duplicate login
     private volatile boolean alreadyClosed = false;
 
-    private String currentRoom = "global";
+    private volatile String currentRoom = "global";
 
     private Gson gson = new Gson();
 
@@ -175,6 +181,12 @@ public class ClientHandler {
         // (старата логика също не пращаше leave съобщение в тоя случай).
         if (authenticated && !kicked) {
             log.info("Client disconnected: {}", username);
+            // Козметична бележка: ако потребителят се е преименувал по-рано в
+            // тая сесия, "has entered"/"has left" текстовете за него в
+            // историята остават с различни имена (старото при entered, новото
+            // тук) — messages.message е свободен текст, не се пипа от
+            // UserDAO.changeUsername (само sender/receiver/room колоните).
+            // Не е бъг, само визуална неконсистентност в старите системни редове.
             Message leave = new Message("system", "SERVER", "#b2bec3",
                     username + " has left the chat");
             leave.timestamp = getTime();
@@ -287,7 +299,7 @@ public class ClientHandler {
     // Извиква се веднага след успешен handleAuthLogin — регистрира клиента
     // като online, праща началните push-ове и broadcast-ва "entered the chat".
     private void completeLogin() {
-        this.myColor = userDAO.getUserColor(this.username);
+        this.myColor = userDAO.ensureUserColor(this.username);
         this.myAvatarId = userDAO.getAvatarId(this.username);
 
         synchronized (lock) {
@@ -584,14 +596,25 @@ public class ClientHandler {
         // потребители, вместо 2 отделни заявки на всеки от тях в цикъл.
         Map<String, UserDAO.OnlineProfile> profiles = userDAO.getOnlineProfiles(allUsernames);
 
-        // Privacy: филтрираме потребители, които са изключили "Show Online Status"
+        if (profiles.size() < allUsernames.size()) {
+            log.warn("getOnlineProfiles returned {}/{} profiles for the online set — " +
+                    "DB error or race on the batch query; missing users fail OPEN (shown), not hidden",
+                    profiles.size(), allUsernames.size());
+        }
+
+        // Privacy: филтрираме потребители, които са изключили "Show Online Status".
+        // Fail-open за липсващ профил (DB грешка в batch заявката по-горе,
+        // или race с disconnect) — старият getShowOnlineStatus() връщаше true
+        // при SQL грешка по същата причина: fail-closed тук е неразличимо от
+        // "наистина никой не е на линия" вместо да изглежда като грешка.
         List<String> visibleUsers = new ArrayList<>();
         Map<String, String> avatarDirectory = new HashMap<>();
         for (String u : allUsernames) {
             UserDAO.OnlineProfile profile = profiles.get(u);
-            if (profile != null && profile.showOnlineStatus) {
+            boolean visible = (profile == null) || profile.showOnlineStatus;
+            if (visible) {
                 visibleUsers.add(u);
-                if (profile.avatarId != null) {
+                if (profile != null && profile.avatarId != null) {
                     avatarDirectory.put(u, profile.avatarId);
                 }
             }

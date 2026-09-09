@@ -131,9 +131,9 @@ public class UserDAO {
         return authenticate(username, password) == AuthResult.SUCCESS;
     }
 
-    // Връща постоянния цвят на потребителя от базата.
-    // Ако по някаква причина акаунтът няма цвят (стар запис отпреди миграцията
-    // и неприложен UPDATE), генерира нов и го записва, за да не върне null повече.
+    // Връща постоянния цвят на потребителя от базата — чист read, БЕЗ
+    // страничен запис. Може да върне null за стар запис отпреди тая колона
+    // (или неприложен UPDATE) — виж ensureUserColor() за backfill-а.
     public String getUserColor(String username) {
 
         String sql = "SELECT color FROM users WHERE username = ?";
@@ -156,7 +156,19 @@ public class UserDAO {
             log.error("Database error in UserDAO", e);
         }
 
-        // Fallback: генерираме и записваме цвят, ако липсва
+        return null;
+    }
+
+    // Backfill за стари акаунти без цвят (регистрирани преди тая колона,
+    // или UPDATE-ът от миграцията не е стигнал до тях). Генерира и записва
+    // нов цвят при нужда. Извиква се ИЗРИЧНО (ClientHandler.completeLogin),
+    // не от getUserColor() — иначе всеки login прави SELECT, който понякога
+    // тихо се превръща в UPDATE, само защото цветът липсва.
+    public String ensureUserColor(String username) {
+        String existing = getUserColor(username);
+        if (existing != null) {
+            return existing;
+        }
         String newColor = generateRandomColor();
         setUserColor(username, newColor);
         return newColor;
@@ -559,6 +571,8 @@ public class UserDAO {
                 result.put(rs.getString("username"),
                         new OnlineProfile(rs.getBoolean("show_online_status"), rs.getString("avatar_id")));
             }
+
+            usernameArray.free();
 
         } catch (SQLException e) {
             log.error("Database error while batch-loading online profiles", e);

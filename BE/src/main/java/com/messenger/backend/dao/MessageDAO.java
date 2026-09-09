@@ -76,14 +76,14 @@ public class MessageDAO {
 
         String sql = """
             SELECT * FROM (
-                SELECT m.sender, m.receiver, m.room, m.type, m.message, m.timestamp, u.color, u.avatar_id
+                SELECT m.id, m.sender, m.receiver, m.room, m.type, m.message, m.timestamp, u.color, u.avatar_id
                 FROM messages m
                 LEFT JOIN users u ON u.username = m.sender
                 WHERE m.room = ?
-                ORDER BY m.timestamp DESC
+                ORDER BY m.timestamp DESC, m.id DESC
                 LIMIT ?
             ) recent
-            ORDER BY timestamp ASC
+            ORDER BY timestamp ASC, id ASC
         """;
 
         return executeQuery(sql, ps -> {
@@ -97,15 +97,15 @@ public class MessageDAO {
 
         String sql = """
             SELECT * FROM (
-                SELECT m.sender, m.receiver, m.room, m.type, m.message, m.timestamp, u.color, u.avatar_id
+                SELECT m.id, m.sender, m.receiver, m.room, m.type, m.message, m.timestamp, u.color, u.avatar_id
                 FROM messages m
                 LEFT JOIN users u ON u.username = m.sender
                 WHERE (m.sender = ? AND m.receiver = ?)
                    OR (m.sender = ? AND m.receiver = ?)
-                ORDER BY m.timestamp DESC
+                ORDER BY m.timestamp DESC, m.id DESC
                 LIMIT ?
             ) recent
-            ORDER BY timestamp ASC
+            ORDER BY timestamp ASC, id ASC
         """;
 
         return executeQuery(sql, ps -> {
@@ -199,12 +199,13 @@ public class MessageDAO {
                     // на изпращане — не пазим отделна снимка-във-времето на avatar-а).
                     msg.avatarId = rs.getString("avatar_id");
 
-                    // ISO-8601 (с timezone offset), не "HH:mm" — иначе датата се
-                    // губи изцяло и клиентът не може да подреди/покаже съобщения
-                    // изпратени в различни дни.
+                    // ISO-8601 UTC ("...Z"), СЪЩИЯТ формат като ClientHandler.getTime()
+                    // (Instant.now().toString()) — иначе живите съобщения и историята
+                    // пристигат при клиента в две различни ISO-8601 форми (offset тук
+                    // vs. Z там) и всеки консуматор трябва да парсва и двете.
                     OffsetDateTime ts = rs.getObject("timestamp", OffsetDateTime.class);
                     if (ts != null) {
-                        msg.timestamp = ts.toString();
+                        msg.timestamp = ts.toInstant().toString();
                     }
 
                     result.add(msg);

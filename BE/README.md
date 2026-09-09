@@ -4,12 +4,14 @@ A Spring Boot Maven port of the reusable, non-UI server code from
 [`../legacy`](../legacy): the WebSocket handler, DAOs, DB schema, and the
 `Message`/`ChatTheme` models. Nothing here depends on JavaFX.
 
-Same wire protocol as `legacy/Server.java` + `legacy/ClientHandler.java` (same
-`AUTH_LOGIN|...`/`AUTH_REGISTER|...` pre-auth commands, same JSON `Message`
-shape post-auth, same rate limiting/validation/brute-force lockout) — this
-pass only replaces the *plumbing* (transport, DB connection management,
-project structure), not the protocol or business logic. No REST endpoints
-yet; that's a decision to make together with the FE work, not before it.
+Mostly the same wire protocol as `legacy/Server.java` + `legacy/ClientHandler.java`
+(same `AUTH_LOGIN|...`/`AUTH_REGISTER|...` pre-auth commands, same JSON
+`Message` shape post-auth, same rate limiting/validation/brute-force lockout)
+— this pass mainly replaces the *plumbing* (transport, DB connection
+management, project structure), not the protocol or business logic. **Not a
+byte-for-byte match, though** — see "Breaking changes vs. legacy client"
+below for the one field whose format changed. No REST endpoints yet; that's
+a decision to make together with the FE work, not before it.
 
 ## What changed vs. `legacy/`
 
@@ -24,6 +26,50 @@ yet; that's a decision to make together with the FE work, not before it.
 One protocol-visible change: **the WebSocket endpoint is now `/ws`**
 (`ws://host:port/ws`), not bare `ws://host:port` — Spring requires a mapped
 path for WebSocket handlers.
+
+## Testing
+
+Two tiers, split by Maven phase so a Docker-less machine still gets a green
+build:
+
+- **Unit tests** (`*Test.java`, e.g. `UsernameValidatorTest`,
+  `ChatThemeValidationTest`) — run on `./mvnw test`. No external
+  dependencies, cover pure functions only.
+- **Integration tests** (`*IT.java`, in `integration/`) — run on
+  `./mvnw verify`, via the `maven-failsafe-plugin`. These use
+  [Testcontainers](https://testcontainers.com) to spin up a real
+  `postgres:16-alpine` container, apply `schema.sql` against it, and exercise
+  actual risk surface that the unit tests don't touch:
+  - `UserDaoChangeUsernameIT` — the `UserDAO.changeUsername` transaction
+    (renames across `users`, `messages.sender/receiver/room`,
+    `friendships.requested_by` in one commit; rollback on `ALREADY_TAKEN`).
+  - `WebSocketProtocolIT` — a full wire-protocol round trip through the real
+    transport (`StandardWebSocketClient` -> embedded Tomcat ->
+    `ChatWebSocketHandler` -> `ClientHandler` -> DAOs -> the Testcontainers
+    Postgres): `AUTH_REGISTER` -> `AUTH_LOGIN` -> send a `message` -> assert
+    the broadcast echo, including the UTC/`Z` timestamp format.
+
+  **Requires a running Docker daemon** — `./mvnw verify` fails fast with
+  `Could not find a valid Docker environment` if one isn't reachable, same
+  as any Testcontainers-based suite. CI (or any dev machine with Docker
+  Desktop/`colima`/etc. running) should use `./mvnw verify` before merging
+  DAO or protocol changes; `./mvnw test` alone will silently skip these
+  (Surefire's default include pattern doesn't match `*IT.java`).
+
+## Breaking changes vs. legacy client
+
+Everything above is "same protocol" *except* this one field:
+
+- **`Message.timestamp` format changed from `HH:mm` to ISO-8601 UTC**
+  (`Instant.toString()`, e.g. `2026-09-09T13:03:29.895078Z`) — for both
+  live-broadcast messages (`ClientHandler.getTime()`) and history loaded
+  from the DB (`MessageDAO`, which converts the stored `TIMESTAMPTZ` to
+  `Instant` so both paths emit the exact same shape. The old `legacy/`
+  JavaFX client renders `timestamp` directly as the on-screen clock text —
+  pointed at this backend, it will show the full ISO-8601 string instead of
+  an `HH:mm` clock. This is only a problem if you're running the old
+  JavaFX client against this backend; a new/updated client that parses
+  `timestamp` as an instant and formats it itself is unaffected.
 
 ## Build & run
 
@@ -133,6 +179,20 @@ to the message shape or a theme ID list will silently desync client and
 server. Not fixed now — there's no FE yet and no shared-module mechanism to
 put them in — but flagged here explicitly so it's a known trade-off, not a
 surprise bug later.
+
+## Known limitation: both Gson and Jackson are on the classpath
+
+`Gson` is a direct dependency (`pom.xml`) and is what `ClientHandler`/DAOs
+actually use to (de)serialize the wire-protocol `Message` JSON — kept
+specifically to match `legacy/`'s wire format byte-for-byte, since that's
+what `UsernameValidator`/`ChatTheme` and the rest of the protocol logic were
+ported from and tested against. `Jackson` shows up too, but only
+*transitively* via `spring-boot-starter-websocket` -> `spring-boot-starter-web`
+-> `spring-boot-starter-json` (Spring Boot's default JSON stack) — nothing
+in this codebase calls it directly. Both work fine side by side, but don't
+start using Jackson (`@RestController` response bodies, `ObjectMapper`,
+etc.) for anything that touches the `Message` wire shape — that would give
+the protocol two independent serializers that can silently drift apart.
 
 ## Files
 
