@@ -7,6 +7,7 @@ import com.messenger.backend.dao.MessageDAO;
 import com.messenger.backend.dao.UserDAO;
 import com.messenger.backend.model.ChatTheme;
 import com.messenger.backend.model.Message;
+import com.messenger.backend.security.TokenService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.socket.TextMessage;
@@ -43,6 +44,7 @@ public class ClientHandler {
     private final UserDAO userDAO;
     private final FriendshipDAO friendshipDAO;
     private final BlockedUserDAO blockedUserDAO;
+    private final TokenService tokenService;
 
     private String myColor;
     private String myAvatarId; // кеширан avatar на тази сесия — обновява се и при set_avatar
@@ -70,7 +72,8 @@ public class ClientHandler {
     public ClientHandler(WebSocketSession session, String clientIp, String username,
                           Runnable onDisconnectCallback,
                           MessageDAO messageDAO, UserDAO userDAO,
-                          FriendshipDAO friendshipDAO, BlockedUserDAO blockedUserDAO) {
+                          FriendshipDAO friendshipDAO, BlockedUserDAO blockedUserDAO,
+                          TokenService tokenService) {
         this.session = session;
         this.onDisconnectCallback = onDisconnectCallback;
         this.clientIp = clientIp;
@@ -79,6 +82,7 @@ public class ClientHandler {
         this.userDAO = userDAO;
         this.friendshipDAO = friendshipDAO;
         this.blockedUserDAO = blockedUserDAO;
+        this.tokenService = tokenService;
     }
 
     // ════════════════════════════════════════════════════════════
@@ -628,8 +632,15 @@ public class ClientHandler {
                     onlineUsers.put(newUsername, this);
                 }
 
+                // Стар токен носи oldUsername — UserDAO.userExists(oldUsername)
+                // ще го отхвърли на следващ connect (виж ChatWebSocketHandler),
+                // затова тук веднага издаваме нов, за новото име, и го пращаме
+                // на клиента да го замести в паметта си. Без тоя ред,
+                // преименувалият се потребител се отписва трайно на следващия
+                // reconnect с обяснение, което не сочи към причината.
                 Message confirm = new Message("username_changed", "SERVER", "#b2bec3", newUsername);
                 confirm.timestamp = getTime();
+                confirm.token = tokenService.issue(newUsername);
                 sendToClient(this, gson.toJson(confirm));
 
                 broadcastOnlineUsers();

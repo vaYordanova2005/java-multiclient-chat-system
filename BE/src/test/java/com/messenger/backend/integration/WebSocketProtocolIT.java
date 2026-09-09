@@ -12,6 +12,7 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketHttpHeaders;
 import org.springframework.web.socket.WebSocketSession;
@@ -28,6 +29,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
@@ -149,6 +151,50 @@ class WebSocketProtocolIT {
 
     @Test
     @Timeout(30)
+    void deletedAccountsTokenIsRejectedOnReconnect() throws Exception {
+        restTemplate = new TestRestTemplate();
+        String username = "ghost" + (System.nanoTime() % 100_000);
+        String password = "password123";
+        String baseUrl = "http://localhost:" + port;
+
+        restTemplate.postForEntity(baseUrl + "/api/auth/register",
+                new AuthController.RegisterRequest(username, password, "Q?", "a"), Void.class);
+
+        ResponseEntity<AuthController.LoginResponse> loginResponse = restTemplate.postForEntity(
+                baseUrl + "/api/auth/login", new AuthController.LoginRequest(username, password),
+                AuthController.LoginResponse.class);
+        String token = loginResponse.getBody().token();
+        assertNotNull(token);
+
+        // Симулира delete_account, без да минаваме през WS протокола за него —
+        // директно DELETE на реда, който UserDAO.userExists ще потърси при
+        // следващ connect опит с тоя (все още криптографски валиден) token.
+        try (Connection conn = DriverManager.getConnection(
+                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+             Statement stmt = conn.createStatement()) {
+            stmt.execute("DELETE FROM users WHERE username = '" + username + "'");
+        }
+
+        RecordingHandler handler = new RecordingHandler();
+        StandardWebSocketClient client = new StandardWebSocketClient();
+
+        // Handshake-ът минава (token-ът е валиден подпис + не е изтекъл) —
+        // ChatWebSocketHandler.afterConnectionEstablished е тоя, който отхвърля
+        // връзката СЛЕД upgrade, чрез userDAO.userExists(). Затова тук чакаме
+        // затварянето на сесията, не провал на самото свързване.
+        WebSocketSession session = client.execute(handler, new WebSocketHttpHeaders(),
+                URI.create("ws://localhost:" + port + "/ws?token=" + token)).get(10, TimeUnit.SECONDS);
+
+        try {
+            CloseStatus closeStatus = handler.closed.get(10, TimeUnit.SECONDS);
+            assertEquals(CloseStatus.NOT_ACCEPTABLE.getCode(), closeStatus.getCode());
+        } finally {
+            if (session.isOpen()) session.close();
+        }
+    }
+
+    @Test
+    @Timeout(30)
     void connectingWithoutATokenIsRejected() throws Exception {
         RecordingHandler handler = new RecordingHandler();
         StandardWebSocketClient client = new StandardWebSocketClient();
@@ -165,10 +211,16 @@ class WebSocketProtocolIT {
 
     private static class RecordingHandler extends TextWebSocketHandler {
         private final BlockingQueue<String> received = new LinkedBlockingQueue<>();
+        private final CompletableFuture<CloseStatus> closed = new CompletableFuture<>();
 
         @Override
         protected void handleTextMessage(WebSocketSession session, TextMessage message) {
             received.offer(message.getPayload());
+        }
+
+        @Override
+        public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
+            closed.complete(status);
         }
 
         String next() throws InterruptedException {

@@ -25,7 +25,7 @@ Login/register/password-reset are now plain REST endpoints
 |---|---|---|---|
 | `POST /api/auth/register` | `{username, password, securityQuestion, securityAnswer}` | `200` | `400`/`429` `{error}` |
 | `POST /api/auth/login` | `{username, password}` | `200 {token, username}` | `400`/`401`/`423`/`429`/`503` `{error}` |
-| `POST /api/auth/reset/question` | `{username}` | `200 {question}` | `404 {error}` |
+| `POST /api/auth/reset/question` | `{username}` | `200 {question}` | `404`/`429` `{error}` |
 | `POST /api/auth/reset/verify` | `{username, answer, newPassword}` | `200` | `400`/`401`/`423`/`429` `{error}` |
 
 The `token` from `/api/auth/login` is a signed, stateless, 24h-expiry token
@@ -44,7 +44,53 @@ Per-IP brute-force lockout (5 failed logins -> 60s lock) and per-IP request
 rate limiting (used to gate registration's 2x bcrypt hashing from being a
 CPU-exhaustion vector) moved with it, from static maps on `ClientHandler`
 into a proper Spring bean (`security/AuthRateLimiter.java`) used by
-`AuthController`.
+`AuthController`. All four endpoints call `checkRequestRateLimit` — including
+`/reset/question`, which returns the account's security question and whether
+it 404s or 200s doubles as a free username-enumeration oracle if left
+unlimited.
+
+### The token is still trusted, but re-checked against the DB on connect
+
+The token proves "this HMAC signature came from us and named this username
+at issue time" — it does **not** get re-verified against the database on
+every use, because it's stateless by design (that's the whole point: no
+server-side session table to hit on every chat message). That's fine for
+24 hours' worth of ordinary use, but it means the token doesn't know if the
+named account was deleted or renamed *after* the token was issued.
+`ChatWebSocketHandler.afterConnectionEstablished` closes that gap the
+cheap way: **one** `UserDAO.userExists(username)` query per WebSocket
+connection (not per message), right after the token's signature/expiry
+checks out. A token naming a deleted or since-renamed account gets the
+connection closed (`NOT_ACCEPTABLE`) instead of creating a ghost
+`ClientHandler` — without this, a deleted account could keep reconnecting
+and chatting under a `sender` with no row in `users` (`LEFT JOIN`s go
+`null` for color/avatar), and a renamed account's old token would create a
+session under a username that no longer exists anywhere.
+
+Renaming (`change_username`) issues a **new** token for the new username
+and sends it to the client as `token` on the `username_changed` message
+(`Message.token`, only populated for that message type) — the old token
+still verifies cryptographically, but now names a username `userExists`
+will reject on the next connect, so the FE must swap its stored token for
+this new one immediately or the *next* reconnect fails.
+
+### The token travels in a query string — known, accepted trade-off
+
+`?token=` on the WebSocket URL ends up in Tomcat's access logs, in any
+reverse proxy's access logs in front of it, and potentially in the
+`Referer` header of whatever the page navigates to next. This isn't an
+oversight: the browser `WebSocket` constructor has no way to attach custom
+headers, so a query parameter (or a subprotocol, which has the same
+logging exposure) is the only way to hand it identity during the
+handshake. Mitigations that keep the risk low today: the token is
+short-lived-ish (24h) and scoped to nothing but chat, `wss://` in
+production keeps it off the wire in cleartext, and access logs are
+generally not public. The properly hardened version of this — not
+implemented here — would have `/api/auth/login` return a *login* token
+used only for a one-time exchange, then have the client trade it for a
+short-lived, single-use *connect* ticket right before opening the socket,
+so the value that ever appears in a URL is worthless a few seconds later
+and to anyone but this one connection.
 
 ## What changed vs. `legacy/`
 
@@ -83,8 +129,12 @@ build:
     `TokenAuthHandshakeInterceptor` -> `ChatWebSocketHandler` ->
     `ClientHandler` -> DAOs -> the Testcontainers Postgres) -> send a
     `message` -> assert the broadcast echo, including the UTC/`Z` timestamp
-    format. A second test asserts the handshake is rejected outright when no
-    `?token=` is supplied.
+    format. Two more cases cover the token/DB edge cases from "The token is
+    still trusted, but re-checked against the DB on connect" below: a
+    connect attempt with no `?token=` gets the handshake itself rejected,
+    and a valid token for a since-deleted account gets the connection
+    accepted at the handshake but then closed (`NOT_ACCEPTABLE`) by
+    `ChatWebSocketHandler`'s post-handshake `userExists` check.
 
   **Requires a running Docker daemon** — `./mvnw verify` fails fast with
   `Could not find a valid Docker environment` if one isn't reachable, same
@@ -204,7 +254,11 @@ real FE origin(s) before going to production; see `WebSocketConfig`.
 it can forge a valid token for any username, so treat it like a password.
 There is no default; pick a long random string and keep it stable across
 restarts of the same deployment (rotating it invalidates every outstanding
-token, forcing all connected clients to re-login).
+token, forcing all connected clients to re-login). Must be at least 32
+characters — `TokenService`'s constructor rejects anything shorter at
+startup, since a short secret makes the HMAC signature brute-forceable and
+turns the whole token scheme decorative. Generate one with, e.g.,
+`openssl rand -base64 32`.
 
 `DB_PASSWORD` and `AUTH_TOKEN_SECRET` are both required — `BackendApplication.main()`
 checks for them before starting Spring and exits with a clear message if

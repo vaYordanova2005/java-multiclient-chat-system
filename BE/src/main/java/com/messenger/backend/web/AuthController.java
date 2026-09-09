@@ -140,7 +140,18 @@ public class AuthController {
     }
 
     @PostMapping("/reset/question")
-    public ResponseEntity<?> getResetQuestion(@RequestBody ResetQuestionRequest req) {
+    public ResponseEntity<?> getResetQuestion(@RequestBody ResetQuestionRequest req, HttpServletRequest httpReq) {
+        // Без тоя лимит endpoint-ът е free-cost username-enumeration oracle
+        // (404 срещу 200 разграничава кои username-и съществуват) И директно
+        // връща security въпроса — първата половина на reset флоуто — без
+        // никаква цена за атакуващия. Останалите три auth endpoint-а вече
+        // викат тая проверка; тоя я пропускаше.
+        String ip = clientIp(httpReq);
+        if (!rateLimiter.checkRequestRateLimit(ip)) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body(new ErrorResponse("Too many requests. Please slow down."));
+        }
+
         String question = userDAO.getSecurityQuestion(req.username());
         if (question == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)

@@ -4,6 +4,7 @@ import com.messenger.backend.dao.BlockedUserDAO;
 import com.messenger.backend.dao.FriendshipDAO;
 import com.messenger.backend.dao.MessageDAO;
 import com.messenger.backend.dao.UserDAO;
+import com.messenger.backend.security.TokenService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -42,13 +43,16 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private final UserDAO userDAO;
     private final FriendshipDAO friendshipDAO;
     private final BlockedUserDAO blockedUserDAO;
+    private final TokenService tokenService;
 
     public ChatWebSocketHandler(MessageDAO messageDAO, UserDAO userDAO,
-                                 FriendshipDAO friendshipDAO, BlockedUserDAO blockedUserDAO) {
+                                 FriendshipDAO friendshipDAO, BlockedUserDAO blockedUserDAO,
+                                 TokenService tokenService) {
         this.messageDAO = messageDAO;
         this.userDAO = userDAO;
         this.friendshipDAO = friendshipDAO;
         this.blockedUserDAO = blockedUserDAO;
+        this.tokenService = tokenService;
     }
 
     // Виж ClientIpHandshakeInterceptor за защо не ползваме
@@ -93,6 +97,22 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         }
         String username = usernameAttr.toString();
 
+        // Токенът е stateless и валиден до 24ч след издаването си (TokenService)
+        // — сам по себе си НЕ гарантира, че username-ът все още е реален ред в
+        // users в МОМЕНТА на connect-а. Без тая проверка изтрит акаунт
+        // (delete_account) или преименуван (changeUsername, старото име в
+        // токена) продължава да се "логва" с призрачна сесия — виж
+        // UserDAO.userExists за пълния разбор на последствията.
+        if (!userDAO.userExists(username)) {
+            log.info("Rejected connection for {} — token's username no longer exists", username);
+            decrementConnectionCount(ip);
+            try {
+                session.close(CloseStatus.NOT_ACCEPTABLE);
+            } catch (Exception ignored) {
+            }
+            return;
+        }
+
         log.info("A new client has connected from {}", ip);
 
         WebSocketSession threadSafeSession = new ConcurrentWebSocketSessionDecorator(
@@ -100,7 +120,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
         ClientHandler handler = new ClientHandler(threadSafeSession, ip, username, () ->
                 decrementConnectionCount(ip),
-                messageDAO, userDAO, friendshipDAO, blockedUserDAO
+                messageDAO, userDAO, friendshipDAO, blockedUserDAO, tokenService
         );
         handlers.put(session, handler);
         handler.start();

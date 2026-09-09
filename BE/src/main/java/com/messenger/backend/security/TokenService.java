@@ -33,6 +33,12 @@ public class TokenService {
     private static final Logger log = LoggerFactory.getLogger(TokenService.class);
     private static final String ALGORITHM = "HmacSHA256";
     private static final long TOKEN_TTL_MS = TimeUnit.HOURS.toMillis(24);
+    // HmacSHA256 не отслабва под пълна 256-битова сигурност заради ключа
+    // САМО ако ключът носи достатъчно ентропия — кратък secret (напр. "abcd")
+    // прави подписа тривиално brute-force-ваем и превръща цялата token схема
+    // в декорация. 32 символа е долна граница, не гаранция за качествена
+    // случайност — но поне отсича очевидно слабите стойности.
+    private static final int MIN_SECRET_LENGTH = 32;
 
     private final Gson gson = new Gson();
     private final SecretKeySpec key;
@@ -42,6 +48,12 @@ public class TokenService {
             throw new IllegalStateException(
                     "AUTH_TOKEN_SECRET environment variable не е зададена. Задай я преди да пуснеш "
                     + "сървъра: PowerShell -> $env:AUTH_TOKEN_SECRET = \"дълъг-случаен-низ\"");
+        }
+        if (secret.length() < MIN_SECRET_LENGTH) {
+            throw new IllegalStateException(
+                    "AUTH_TOKEN_SECRET е твърде къс (" + secret.length() + " символа, минимум "
+                    + MIN_SECRET_LENGTH + ") — кратък secret прави HMAC подписа брутфорсваем. "
+                    + "Задай по-дълъг, случаен низ.");
         }
         this.key = new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), ALGORITHM);
     }

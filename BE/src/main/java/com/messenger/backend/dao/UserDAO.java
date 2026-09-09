@@ -131,6 +131,29 @@ public class UserDAO {
         return authenticate(username, password) == AuthResult.SUCCESS;
     }
 
+    // Проверява, че username-ът от токена ВСЕ ОЩЕ е реален ред в users — викан
+    // веднъж на WebSocket connect (ChatWebSocketHandler), не на всяко
+    // съобщение. Токенът е stateless и валиден до 24ч след издаване
+    // (TokenService) — без тая проверка изтрит акаунт (delete_account) или
+    // преименуван (changeUsername, старото име) продължава да се свързва
+    // призрачно със стар токен: появява се в online списъка, съобщенията му
+    // се записват със sender, който няма ред в users (null color/avatar от
+    // LEFT JOIN), или ensureUserColor прави UPDATE върху 0 реда. DB грешка се
+    // третира като "не съществува" (false) — същото решение като
+    // FriendshipDAO.userExists за идентичен SQL: по-безопасно да откажем
+    // connect-а при несигурност, отколкото да пуснем евентуален призрак.
+    public boolean userExists(String username) {
+        String sql = "SELECT 1 FROM users WHERE username = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, username);
+            return stmt.executeQuery().next();
+        } catch (SQLException e) {
+            log.error("Database error while checking if user exists", e);
+            return false;
+        }
+    }
+
     // Вътрешен read, БЕЗ страничен запис — хвърля SQLException вместо да я
     // поглъща, за да могат getUserColor() и ensureUserColor() да реагират
     // различно на "няма ред/няма цвят" срещу "заявката гръмна" (виж защо
