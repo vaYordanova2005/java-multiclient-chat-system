@@ -56,15 +56,28 @@ build:
   DAO or protocol changes; `./mvnw test` alone will silently skip these
   (Surefire's default include pattern doesn't match `*IT.java`).
 
-  **Not yet run to completion anywhere.** These were written and reviewed
-  in an environment with no Docker daemon, so both `UserDaoChangeUsernameIT`
-  and `WebSocketProtocolIT` have only been confirmed to *compile* and to
-  fail identically and immediately at container startup
-  (`TestcontainersExtension`/`PostgreSQLContainer.start()`) — neither has
-  actually reached its own assertions, the real schema, or (for the
-  WebSocket test) a live Spring context. Treat both as unverified until the
-  first real `./mvnw verify` run with Docker available; don't assume either
-  one passes just because it's in the repo.
+  **Verification status — being precise about what's actually confirmed:**
+  - The `UserDAO.changeUsername` transaction itself — the exact logic
+    `UserDaoChangeUsernameIT` exercises — has been run against a real
+    (local, disposable) Postgres instance with the compiled DAO classes and
+    passed: rename across all four targets, `friendships.requested_by`
+    surviving a rename with the pending request still acceptable, rollback
+    on `ALREADY_TAKEN` restoring `messages.sender` too, and the UTC/`Z`
+    timestamp format. The DAO code itself is confirmed correct.
+  - What that run did **not** confirm is `UserDaoChangeUsernameIT` running
+    end-to-end *through Testcontainers via `./mvnw verify` in this repo* —
+    that specific automation path (this test class + Failsafe +
+    Testcontainers wiring) has only been exercised up to failing on "no
+    Docker daemon" in the environment these changes were authored in. Given
+    the underlying logic is verified, it's expected to pass, but the test
+    file and its plumbing haven't been run themselves.
+  - `WebSocketProtocolIT` is fully unverified either way — neither its
+    logic nor the automation around it has been run against anything real
+    yet.
+
+  Bottom line: don't assume a clean `./mvnw verify` until someone actually
+  runs it with Docker available. That's the remaining gap — not whether
+  `changeUsername` works.
 
 ## Breaking changes vs. legacy client
 
