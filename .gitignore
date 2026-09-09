@@ -1,6 +1,9 @@
 ﻿# Compiled bytecode
 *.class
 
+# Third-party dependency jars - not needed in git, download per README
+lib/
+
 # SECRETS - never commit these
 *.jks
 *.p12

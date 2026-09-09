@@ -22,10 +22,12 @@ Desktop chat application built with Java + JavaFX, with a WebSocket server backe
 
 Make sure `lib/` contains all of the following jars:
 
+`lib/` is gitignored — none of these ship in the repo, download them yourself:
+
 | Jar | Download |
 |---|---|
-| `gson.jar` | included in repo |
-| `jbcrypt-0.4.jar` | included in repo |
+| `gson.jar` (2.14.0) | https://repo1.maven.org/maven2/com/google/code/gson/gson/2.14.0/gson-2.14.0.jar |
+| `jbcrypt-0.4.jar` | https://repo1.maven.org/maven2/org/mindrot/jbcrypt/0.4/jbcrypt-0.4.jar |
 | `postgresql-42.7.12.jar` | https://jdbc.postgresql.org/download/ |
 | `Java-WebSocket-1.6.0.jar` | https://repo1.maven.org/maven2/org/java-websocket/Java-WebSocket/1.6.0/Java-WebSocket-1.6.0.jar |
 | `slf4j-api-2.0.17.jar` | https://repo1.maven.org/maven2/org/slf4j/slf4j-api/2.0.17/slf4j-api-2.0.17.jar |
