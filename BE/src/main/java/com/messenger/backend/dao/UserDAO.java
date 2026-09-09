@@ -131,44 +131,63 @@ public class UserDAO {
         return authenticate(username, password) == AuthResult.SUCCESS;
     }
 
-    // Връща постоянния цвят на потребителя от базата — чист read, БЕЗ
-    // страничен запис. Може да върне null за стар запис отпреди тая колона
-    // (или неприложен UPDATE) — виж ensureUserColor() за backfill-а.
-    public String getUserColor(String username) {
-
+    // Вътрешен read, БЕЗ страничен запис — хвърля SQLException вместо да я
+    // поглъща, за да могат getUserColor() и ensureUserColor() да реагират
+    // различно на "няма ред/няма цвят" срещу "заявката гръмна" (виж защо
+    // това разграничение е важно в коментара на ensureUserColor()).
+    private String selectUserColor(String username) throws SQLException {
         String sql = "SELECT color FROM users WHERE username = ?";
 
         try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
 
             stmt.setString(1, username);
-
             ResultSet rs = stmt.executeQuery();
 
             if (rs.next()) {
                 String color = rs.getString("color");
-                if (color != null && !color.isEmpty()) {
-                    return color;
-                }
+                return (color != null && !color.isEmpty()) ? color : null;
             }
-
-        } catch (SQLException e) {
-            log.error("Database error in UserDAO", e);
         }
 
         return null;
     }
 
+    // Връща постоянния цвят на потребителя от базата — чист read, БЕЗ
+    // страничен запис. Връща null и при липсващ цвят, и при DB грешка
+    // (логвана) — извикващият не различава двата случая тук. За разлика от
+    // ensureUserColor(), тук това е ОК: чист read няма какво да развали.
+    public String getUserColor(String username) {
+        try {
+            return selectUserColor(username);
+        } catch (SQLException e) {
+            log.error("Database error in UserDAO", e);
+            return null;
+        }
+    }
+
     // Backfill за стари акаунти без цвят (регистрирани преди тая колона,
     // или UPDATE-ът от миграцията не е стигнал до тях). Генерира и записва
-    // нов цвят при нужда. Извиква се ИЗРИЧНО (ClientHandler.completeLogin),
-    // не от getUserColor() — иначе всеки login прави SELECT, който понякога
-    // тихо се превръща в UPDATE, само защото цветът липсва.
+    // нов цвят, НО само ако наистина липсва — не и при DB грешка. Ако
+    // ползвахме getUserColor() тук (който връща null и в двата случая),
+    // временен SQLException в SELECT-а точно по време на login би довел до
+    // генериране и презаписване на НОВ случаен цвят върху постоянния на
+    // потребителя, само заради еднократен hiccup. При грешка връщаме null
+    // и НЕ пипаме базата — извикващият (completeLogin) просто няма цвят
+    // тоя път, вместо потребителят да го изгуби завинаги.
     public String ensureUserColor(String username) {
-        String existing = getUserColor(username);
+        String existing;
+        try {
+            existing = selectUserColor(username);
+        } catch (SQLException e) {
+            log.error("Database error in UserDAO while ensuring user color", e);
+            return null;
+        }
+
         if (existing != null) {
             return existing;
         }
+
         String newColor = generateRandomColor();
         setUserColor(username, newColor);
         return newColor;

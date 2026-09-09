@@ -56,6 +56,16 @@ build:
   DAO or protocol changes; `./mvnw test` alone will silently skip these
   (Surefire's default include pattern doesn't match `*IT.java`).
 
+  **Not yet run to completion anywhere.** These were written and reviewed
+  in an environment with no Docker daemon, so both `UserDaoChangeUsernameIT`
+  and `WebSocketProtocolIT` have only been confirmed to *compile* and to
+  fail identically and immediately at container startup
+  (`TestcontainersExtension`/`PostgreSQLContainer.start()`) — neither has
+  actually reached its own assertions, the real schema, or (for the
+  WebSocket test) a live Spring context. Treat both as unverified until the
+  first real `./mvnw verify` run with Docker available; don't assume either
+  one passes just because it's in the repo.
+
 ## Breaking changes vs. legacy client
 
 Everything above is "same protocol" *except* this one field:
@@ -64,7 +74,7 @@ Everything above is "same protocol" *except* this one field:
   (`Instant.toString()`, e.g. `2026-09-09T13:03:29.895078Z`) — for both
   live-broadcast messages (`ClientHandler.getTime()`) and history loaded
   from the DB (`MessageDAO`, which converts the stored `TIMESTAMPTZ` to
-  `Instant` so both paths emit the exact same shape. The old `legacy/`
+  `Instant`) so both paths emit the exact same shape. The old `legacy/`
   JavaFX client renders `timestamp` directly as the on-screen clock text —
   pointed at this backend, it will show the full ISO-8601 string instead of
   an `HH:mm` clock. This is only a problem if you're running the old
@@ -183,13 +193,16 @@ surprise bug later.
 ## Known limitation: both Gson and Jackson are on the classpath
 
 `Gson` is a direct dependency (`pom.xml`) and is what `ClientHandler`/DAOs
-actually use to (de)serialize the wire-protocol `Message` JSON — kept
-specifically to match `legacy/`'s wire format byte-for-byte, since that's
-what `UsernameValidator`/`ChatTheme` and the rest of the protocol logic were
-ported from and tested against. `Jackson` shows up too, but only
-*transitively* via `spring-boot-starter-websocket` -> `spring-boot-starter-web`
--> `spring-boot-starter-json` (Spring Boot's default JSON stack) — nothing
-in this codebase calls it directly. Both work fine side by side, but don't
+actually use to (de)serialize the wire-protocol `Message` JSON. It's kept
+for exactly one reason: matching `legacy/`'s wire format byte-for-byte — the
+old JavaFX client expects Gson's JSON shape, and switching serializers here
+is exactly the kind of change that would silently break it. (This has
+nothing to do with `UsernameValidator`/`ChatTheme` — those are unrelated to
+serialization; `UsernameValidator` in particular is new in this pass, not
+ported from anywhere.) `Jackson` shows up too, but only *transitively* via
+`spring-boot-starter-websocket` -> `spring-boot-starter-web` ->
+`spring-boot-starter-json` (Spring Boot's default JSON stack) — nothing in
+this codebase calls it directly. Both work fine side by side, but don't
 start using Jackson (`@RestController` response bodies, `ObjectMapper`,
 etc.) for anything that touches the `Message` wire shape — that would give
 the protocol two independent serializers that can silently drift apart.

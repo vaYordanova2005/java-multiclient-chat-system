@@ -5,6 +5,7 @@ import com.zaxxer.hikari.HikariDataSource;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.io.InputStream;
@@ -22,15 +23,20 @@ import java.sql.Statement;
 @Testcontainers
 public abstract class PostgresIntegrationTestBase {
 
+    // @Container (не ръчен .start()) — само така @Testcontainers разпознава
+    // полето и го спира автоматично след класа. Без анотацията контейнерът
+    // никога не се спираше изрично (само Ryuk-ът го чистеше по-късно,
+    // асинхронно, не веднага след тоя test class).
+    @Container
     private static final PostgreSQLContainer<?> POSTGRES =
             new PostgreSQLContainer<>("postgres:16-alpine");
 
     protected static HikariDataSource dataSource;
 
+    // @Testcontainers стартира @Container полето ПРЕДИ това да се изпълни
+    // (същият extension ordering, на който разчита и WebSocketProtocolIT).
     @BeforeAll
-    static void startContainerAndApplySchema() throws Exception {
-        POSTGRES.start();
-
+    static void buildDataSourceAndApplySchema() throws Exception {
         HikariConfig config = new HikariConfig();
         config.setJdbcUrl(POSTGRES.getJdbcUrl());
         config.setUsername(POSTGRES.getUsername());
