@@ -427,6 +427,21 @@ public class UserDAO {
                     stmt.executeUpdate();
                 }
 
+                // friendships.user_a/user_b следват преименуването сами през
+                // ON UPDATE CASCADE, но requested_by НЕ е FK и остава със старото
+                // име. Ако не го обновим тук, pending заявка на преименувал се
+                // потребител увисва завинаги: getPendingRequests връща вече
+                // несъществуващото старо име, а acceptRequest/declineRequest
+                // търсят реда по (user_a, user_b, requested_by) — новото име в
+                // първите две вече не съвпада със старото в третото, match-ът е
+                // 0 реда и заявката не може нито да се приеме, нито да се откаже.
+                try (PreparedStatement stmt = conn.prepareStatement(
+                        "UPDATE friendships SET requested_by = ? WHERE requested_by = ?")) {
+                    stmt.setString(1, newUsername);
+                    stmt.setString(2, oldUsername);
+                    stmt.executeUpdate();
+                }
+
                 renameDmRooms(conn, oldUsername, newUsername);
 
                 conn.commit();
