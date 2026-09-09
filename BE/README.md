@@ -75,9 +75,27 @@ build:
     logic nor the automation around it has been run against anything real
     yet.
 
-  Bottom line: don't assume a clean `./mvnw verify` until someone actually
-  runs it with Docker available. That's the remaining gap — not whether
-  `changeUsername` works.
+  Bottom line: don't assume a clean `./mvnw verify` until it has actually
+  run somewhere with Docker available. That's the remaining gap — not
+  whether `changeUsername` works.
+
+### Where `verify` actually runs
+
+No one working on this project has Docker installed locally, so the
+integration tests are run by CI instead of on a dev machine:
+[`.github/workflows/be-ci.yml`](../.github/workflows/be-ci.yml) runs
+`./mvnw verify` on GitHub's `ubuntu-latest` runners, which ship with a
+working Docker daemon — so Testcontainers starts its Postgres there and the
+`*IT` tests execute for real on every push and pull request. Surefire and
+Failsafe reports are uploaded as a build artifact (`test-reports`), so a
+failing IT can be read in full from the Actions run rather than just from
+the stack trace in the log.
+
+Locally, keep using `./mvnw test` — it stays green without Docker and
+skips the `*IT` classes. If you do want to run the integration tests on
+your own machine, you need a Docker daemon (Docker Desktop on
+Windows/macOS, or the engine directly on Linux); nothing else about the
+setup changes.
 
 ## Breaking changes vs. legacy client
 
