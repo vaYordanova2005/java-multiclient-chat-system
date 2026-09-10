@@ -77,21 +77,36 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <div className={styles.page}>
-      <div className={styles.card}>
-        <div className={styles.title}>Reset Password</div>
-        {status && <div className={styles.statusMuted}>{status}</div>}
+    <div className={styles.authPage}>
+      <div className={styles.authCard}>
+        <div className={styles.avatarCircle}>
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="5" y="11" width="14" height="9" rx="2" />
+            <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+          </svg>
+        </div>
+
+        <div className={styles.authTitle}>Reset Password</div>
+        {status && <div className={styles.authStatusMuted}>{status}</div>}
 
         {step === 1 && (
           <form className={styles.stepBox} onSubmit={handleStep1}>
-            <input
-              className={styles.field}
-              placeholder="Your username..."
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              autoComplete="username"
-            />
-            <button className={styles.primaryButton} type="submit" disabled={submitting}>
+            <div className={styles.fieldGroup}>
+              <span className={styles.fieldIcon}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="8" r="4" />
+                  <path d="M4 20c0-4 3.5-7 8-7s8 3 8 7" />
+                </svg>
+              </span>
+              <input
+                className={styles.authField}
+                placeholder="Your username..."
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                autoComplete="username"
+              />
+            </div>
+            <button className={styles.authButton} type="submit" disabled={submitting}>
               Continue
             </button>
           </form>
@@ -99,36 +114,60 @@ export default function ForgotPasswordPage() {
 
         {step === 2 && (
           <form className={styles.stepBox} onSubmit={handleStep2}>
-            <div className={styles.questionLabel}>{question}</div>
-            <input
-              className={styles.field}
-              placeholder="Your answer..."
-              value={answer}
-              onChange={(e) => setAnswer(e.target.value)}
-            />
-            <input
-              className={styles.field}
-              type="password"
-              placeholder="New password..."
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              autoComplete="new-password"
-            />
-            <input
-              className={styles.field}
-              type="password"
-              placeholder="Repeat new password..."
-              value={newPasswordRepeat}
-              onChange={(e) => setNewPasswordRepeat(e.target.value)}
-              autoComplete="new-password"
-            />
-            <button className={styles.primaryButton} type="submit" disabled={submitting}>
+            <div className={styles.authQuestionLabel}>{question}</div>
+            <div className={styles.fieldGroup}>
+              <span className={styles.fieldIcon}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                </svg>
+              </span>
+              <input
+                className={styles.authField}
+                placeholder="Your answer..."
+                value={answer}
+                onChange={(e) => setAnswer(e.target.value)}
+              />
+            </div>
+            <div className={styles.fieldGroup}>
+              <span className={styles.fieldIcon}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect x="5" y="11" width="14" height="9" rx="2" />
+                  <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                </svg>
+              </span>
+              <input
+                className={styles.authField}
+                type="password"
+                placeholder="New password..."
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                autoComplete="new-password"
+              />
+            </div>
+            <div className={styles.fieldGroup}>
+              <span className={styles.fieldIcon}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect x="5" y="11" width="14" height="9" rx="2" />
+                  <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                </svg>
+              </span>
+              <input
+                className={styles.authField}
+                type="password"
+                placeholder="Repeat new password..."
+                value={newPasswordRepeat}
+                onChange={(e) => setNewPasswordRepeat(e.target.value)}
+                autoComplete="new-password"
+              />
+            </div>
+            <button className={styles.authButton} type="submit" disabled={submitting}>
               Reset Password
             </button>
           </form>
         )}
 
-        <Link className={styles.mutedLinkText} to="/login">
+        <Link className={styles.authMutedLink} to="/login">
           ← Back to login
         </Link>
       </div>

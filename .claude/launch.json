@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "FE", "run", "dev", "--", "--port", "5173"],
       "port": 5173
+    },
+    {
+      "name": "be-dev",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "BE\\run-local.cmd"],
+      "port": 5000
     }
   ]
 }

@@ -21,7 +21,10 @@ export interface LogoutNotice {
 
 interface AuthContextValue {
   session: AuthSession | null;
-  login: (session: AuthSession) => void;
+  // `remember` picks where the session is persisted: localStorage (default,
+  // survives closing the browser) vs sessionStorage (cleared when the tab
+  // closes) — the "Remember me" checkbox on LoginPage.
+  login: (session: AuthSession, remember?: boolean) => void;
   // `notice` is surfaced by RequireAuth's own redirect (see RequireAuth.tsx)
   // instead of the caller separately calling useNavigate() itself — a
   // logout() that flips `session` to null and a same-tick explicit
@@ -37,13 +40,13 @@ const STORAGE_KEY = 'messenger.auth';
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-function readStoredSession(): AuthSession | null {
+function readFrom(storage: Storage): AuthSession | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = storage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const stored = JSON.parse(raw) as StoredSession;
     if (stored.expiresAt !== null && Date.now() >= stored.expiresAt) {
-      localStorage.removeItem(STORAGE_KEY);
+      storage.removeItem(STORAGE_KEY);
       return null;
     }
     return { token: stored.token, username: stored.username };
@@ -52,19 +55,29 @@ function readStoredSession(): AuthSession | null {
   }
 }
 
+// localStorage (remembered) takes precedence over sessionStorage
+// (this-tab-only) in the unlikely case both somehow hold a session.
+function readStoredSession(): AuthSession | null {
+  return readFrom(localStorage) ?? readFrom(sessionStorage);
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<AuthSession | null>(readStoredSession);
   const [logoutNotice, setLogoutNotice] = useState<LogoutNotice | null>(null);
 
-  const login = useCallback((next: AuthSession) => {
+  const login = useCallback((next: AuthSession, remember = true) => {
     const stored: StoredSession = { ...next, expiresAt: decodeExpiry(next.token) };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+    const storage = remember ? localStorage : sessionStorage;
+    const other = remember ? sessionStorage : localStorage;
+    other.removeItem(STORAGE_KEY);
+    storage.setItem(STORAGE_KEY, JSON.stringify(stored));
     setSession(next);
     setLogoutNotice(null);
   }, []);
 
   const logout = useCallback((notice?: LogoutNotice) => {
     localStorage.removeItem(STORAGE_KEY);
+    sessionStorage.removeItem(STORAGE_KEY);
     setSession(null);
     setLogoutNotice(notice ?? null);
   }, []);
