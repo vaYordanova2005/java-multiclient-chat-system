@@ -14,11 +14,18 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 
 @Repository
 public class UserDAO {
 
     private static final Logger log = LoggerFactory.getLogger(UserDAO.class);
+
+    // Запазени за конкретни акаунти (виж appearance-picker-а/Avatar.tsx
+    // fallback) — черно за "dev", оранжево за "Claude". Изключени от
+    // случайното генериране, за да не може регистрация на нов потребител
+    // случайно да кацне на същия цвят.
+    private static final Set<String> RESERVED_COLORS = Set.of("#000000", "#F97316");
 
     private final DataSource dataSource;
 
@@ -33,8 +40,12 @@ public class UserDAO {
     // Генерира случаен HEX цвят — извиква се ВЕДНЪЖ, при регистрация.
     private String generateRandomColor() {
         Random rnd = new Random();
-        int rgb = rnd.nextInt(0xFFFFFF + 1);
-        return String.format("#%06X", rgb);
+        String color;
+        do {
+            int rgb = rnd.nextInt(0xFFFFFF + 1);
+            color = String.format("#%06X", rgb);
+        } while (RESERVED_COLORS.contains(color));
+        return color;
     }
 
     // 🆕 REGISTER USER + security question (email е премахнат — не се ползва
