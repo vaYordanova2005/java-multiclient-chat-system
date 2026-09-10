@@ -80,14 +80,22 @@ export function useChat({ token, username, onUsernameChanged, onAccountDeleted, 
   const currentRoomRef = useRef(currentRoom);
   const usernameRef = useRef(username);
   const themeRef = useRef(theme);
-  // Set right after a *reconnect* (not the first connect) when the room
-  // we're actually viewing isn't "global" — see the onOpen handler below.
-  // ClientHandler.start() unconditionally reloads "global" history (and
-  // rebroadcasts a join notice) on every fresh connection before our own
-  // room_join for this room can even be processed, so anything tagged for a
-  // different room while this is set is that stale burst, not new activity.
-  const resyncTargetRoomRef = useRef<string | null>(null);
-  const resyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The room whose reload we're currently waiting on (set by requestRoomJoin
+  // below, whether from a manual switch or a post-reconnect resync) —
+  // resolved (cleared) the moment that room's own data starts arriving.
+  const pendingRoomJoinRef = useRef<string | null>(null);
+  // Rooms whose next incoming batch should be dropped outright instead of
+  // appended or counted as unread. Two distinct things land here: (1) "global",
+  // preemptively, right after a reconnect into some other room — BE
+  // unconditionally reloads and rebroadcasts a join for "global" on every
+  // fresh connection (ClientHandler.start()) with no memory of where this
+  // client actually was, regardless of what we go on to ask for; and (2) a
+  // room whose room_join we sent but abandoned by switching again before its
+  // reply arrived — that reply is still coming and would otherwise inflate
+  // the now-irrelevant room's unread badge. Each entry expires on its own
+  // after a bounded window so nothing can stay suppressed forever — an
+  // exact fix needs the BE to echo back a request id, which it doesn't.
+  const staleRoomsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   useEffect(() => {
     currentRoomRef.current = currentRoom;
@@ -141,27 +149,51 @@ export function useChat({ token, username, onUsernameChanged, onAccountDeleted, 
     setDmPartners((prev) => (prev.includes(partner) ? prev : [...prev, partner]));
   }, []);
 
-  // True while `msg` should be treated as the stale post-reconnect "global"
-  // burst rather than real activity (see resyncTargetRoomRef above) — drop
-  // it outright instead of appending it into the wrong room or inflating
-  // that room's unread badge. Clears itself the moment the target room's
-  // own data starts arriving, which is also a signal worth reacting to
-  // (nothing further to absorb), not just a check.
-  const absorbDuringResync = useCallback((msg: WireMessage): boolean => {
-    const target = resyncTargetRoomRef.current;
-    // Roomless pushes (e.g. a direct "X accepted your friend request"
-    // notice) aren't part of the per-room reload burst at all — never
-    // absorb those, regardless of resync state.
-    if (!target || !msg.room) return false;
-    if (msg.room === target) {
-      resyncTargetRoomRef.current = null;
-      if (resyncTimeoutRef.current) {
-        clearTimeout(resyncTimeoutRef.current);
-        resyncTimeoutRef.current = null;
-      }
-      return false;
+  const markRoomStale = useCallback((room: string) => {
+    const existing = staleRoomsRef.current.get(room);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => staleRoomsRef.current.delete(room), 5000);
+    staleRoomsRef.current.set(room, timer);
+  }, []);
+
+  const clearRoomStale = useCallback((room: string) => {
+    const existing = staleRoomsRef.current.get(room);
+    if (existing) clearTimeout(existing);
+    staleRoomsRef.current.delete(room);
+  }, []);
+
+  // True if `msg` belongs to a room currently marked stale — drop it
+  // outright instead of appending it or inflating an unread badge.
+  // Roomless pushes (e.g. a direct "X accepted your friend request" notice)
+  // are never part of a per-room reload batch, so they're never eligible.
+  const absorbIfStale = useCallback((msg: WireMessage): boolean => {
+    return !!msg.room && staleRoomsRef.current.has(msg.room);
+  }, []);
+
+  // Send a room_join and track it as "pending" so its reply can be told
+  // apart from unrelated traffic. If a *previous* room_join hadn't resolved
+  // yet (its data never arrived before this one superseded it), that room
+  // is now abandoned — its eventual, now-unwanted reply gets marked stale
+  // instead of landing as a phantom unread bump for a room nobody's asking
+  // about anymore.
+  const requestRoomJoin = useCallback(
+    (room: string) => {
+      const previous = pendingRoomJoinRef.current;
+      if (previous && previous !== room) markRoomStale(previous);
+      pendingRoomJoinRef.current = room;
+      clearRoomStale(room);
+      socketRef.current?.send({ type: 'room_join', room });
+    },
+    [markRoomStale, clearRoomStale],
+  );
+
+  // Call once per inbound room-scoped message, before deciding whether to
+  // append/count it — resolves pendingRoomJoinRef the moment the room we
+  // actually asked for starts delivering data.
+  const resolvePendingRoomJoin = useCallback((msg: WireMessage) => {
+    if (msg.room && msg.room === pendingRoomJoinRef.current) {
+      pendingRoomJoinRef.current = null;
     }
-    return true;
   }, []);
 
   // ── Incoming message dispatch — mirrors legacy/Main.java's handleServerMessage ──
@@ -236,16 +268,18 @@ export function useChat({ token, username, onUsernameChanged, onAccountDeleted, 
           return;
         }
         case 'system': {
-          if (absorbDuringResync(msg)) return;
+          if (absorbIfStale(msg)) return;
+          resolvePendingRoomJoin(msg);
           // Room-scoped (join/leave, via broadcastToRoom) only ever
-          // disagrees with currentRoomRef during the resync window above;
+          // disagrees with currentRoomRef while a room_join is in flight;
           // roomless ones (e.g. a direct "friend request accepted" notice)
           // are always relevant regardless of the active room.
           if (!msg.room || msg.room === currentRoomRef.current) appendMessage(msg);
           return;
         }
         case 'dm': {
-          if (absorbDuringResync(msg)) return;
+          if (absorbIfStale(msg)) return;
+          resolvePendingRoomJoin(msg);
           const otherUser = msg.user === self ? msg.receiver! : msg.user!;
           addDmPartner(otherUser);
           const roomKey = dmRoomKey(self, otherUser);
@@ -257,7 +291,8 @@ export function useChat({ token, username, onUsernameChanged, onAccountDeleted, 
           return;
         }
         default: {
-          if (absorbDuringResync(msg)) return;
+          if (absorbIfStale(msg)) return;
+          resolvePendingRoomJoin(msg);
           // "message" and anything else room-scoped.
           if (msg.room && msg.room === currentRoomRef.current) {
             appendMessage(msg);
@@ -267,7 +302,7 @@ export function useChat({ token, username, onUsernameChanged, onAccountDeleted, 
         }
       }
     },
-    [absorbDuringResync, addDmPartner, appendMessage, incrementUnread, onAccountDeleted, onUsernameChanged, pushNotice],
+    [absorbIfStale, addDmPartner, appendMessage, incrementUnread, onAccountDeleted, onUsernameChanged, pushNotice, resolvePendingRoomJoin],
   );
 
   // handleServerMessage/onAuthFailed close over per-render state (current
@@ -322,16 +357,11 @@ export function useChat({ token, username, onUsernameChanged, onAccountDeleted, 
           const room = currentRoomRef.current;
           if (room !== GLOBAL_ROOM) {
             // BE's own auto-reload above already targeted "global", not
-            // this room — ask for the right one. absorbDuringResync drops
-            // that now-irrelevant "global" burst instead of it leaking
-            // into this room's view or unread count while we wait.
-            resyncTargetRoomRef.current = room;
-            if (resyncTimeoutRef.current) clearTimeout(resyncTimeoutRef.current);
-            resyncTimeoutRef.current = setTimeout(() => {
-              resyncTargetRoomRef.current = null;
-              resyncTimeoutRef.current = null;
-            }, 5000);
-            socket.send({ type: 'room_join', room });
+            // this room — mark that unsolicited burst stale (it's never
+            // real DM traffic — start() only ever auto-reloads "global")
+            // and ask for the room we actually want.
+            markRoomStale(GLOBAL_ROOM);
+            requestRoomJoin(room);
           }
         }
         hadConnectedBefore = true;
@@ -341,34 +371,27 @@ export function useChat({ token, username, onUsernameChanged, onAccountDeleted, 
       onAuthFailed: () => onAuthFailedRef.current(),
     });
     socketRef.current = socket;
+    const staleTimers = staleRoomsRef.current;
     return () => {
       socket.close();
-      if (resyncTimeoutRef.current) {
-        clearTimeout(resyncTimeoutRef.current);
-        resyncTimeoutRef.current = null;
-      }
-      resyncTargetRoomRef.current = null;
+      staleTimers.forEach(clearTimeout);
+      staleTimers.clear();
+      pendingRoomJoinRef.current = null;
     };
-  }, [token]);
+  }, [token, markRoomStale, requestRoomJoin]);
 
   const send = useCallback((payload: WireMessage) => socketRef.current?.send(payload), []);
 
   const changeRoom = useCallback(
     (room: string) => {
       if (room === currentRoomRef.current) return;
-      // A manual switch supersedes any pending post-reconnect resync.
-      resyncTargetRoomRef.current = null;
-      if (resyncTimeoutRef.current) {
-        clearTimeout(resyncTimeoutRef.current);
-        resyncTimeoutRef.current = null;
-      }
       currentRoomRef.current = room;
       setCurrentRoom(room);
       setMessages([]);
       clearUnread(room);
-      send({ type: 'room_join', room });
+      requestRoomJoin(room);
     },
-    [clearUnread, send],
+    [clearUnread, requestRoomJoin],
   );
 
   const switchToGlobal = useCallback(() => changeRoom(GLOBAL_ROOM), [changeRoom]);
