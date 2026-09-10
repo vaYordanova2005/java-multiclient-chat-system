@@ -37,6 +37,14 @@
   --danger-soft-text: #7a2330;
   --danger-soft-bg: #fce8ea;
 
+  /* Neutral chrome — pulled out of scattered inline styles/hardcoded hex so
+     there's one place to adjust the "white card on lilac" look and the
+     online/offline presence dot colors. */
+  --surface-card: #ffffff;
+  --text-inverse: #ffffff;
+  --status-online: #00b894;
+  --status-offline: #c2c2c2;
+
   /* App chrome defaults — mirror ChatTheme's default UI theme (ui_lilac) */
   --ui-accent: var(--lilac-6);
   --ui-panel-bg: var(--lilac-2);

@@ -26,6 +26,10 @@ export default function ChatPage() {
       logout();
       navigate('/login', { replace: true });
     },
+    onAuthFailed: () => {
+      logout();
+      navigate('/login', { replace: true, state: { notice: '❌ Session expired — please log in again.' } });
+    },
   });
 
   const uiTheme = catalog.uiThemes.find((t) => t.id === chat.theme.uiThemeId);

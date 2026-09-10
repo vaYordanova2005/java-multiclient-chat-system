@@ -2,6 +2,7 @@ import type { WireMessage } from '../../chat/types';
 import type { BubbleTheme } from '../../theme/catalog';
 import { bubbleThemeCss } from '../../theme/catalog';
 import Avatar from '../../components/Avatar';
+import styles from './MessageRow.module.css';
 
 function formatTime(timestamp?: string): string {
   if (!timestamp) return '';
@@ -23,10 +24,8 @@ export default function MessageRow({
 }) {
   if (msg.type === 'system' || msg.type === 'leave' || msg.type === 'room_join') {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center' }}>
-        <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: 14, padding: 6 }}>
-          {msg.text || `➡️ ${msg.user} joined`}
-        </span>
+      <div className={styles.systemWrapper}>
+        <span className={styles.systemText}>{msg.text || `➡️ ${msg.user} joined`}</span>
       </div>
     );
   }
@@ -36,31 +35,22 @@ export default function MessageRow({
   const avatarId = isMe ? myAvatarId : msg.avatarId;
   const color = msg.color ?? '#808080';
 
-  const bubbleStyle = isMe
-    ? {
-        padding: '11px 16px',
-        borderRadius: 16,
-        fontSize: 15,
-        background: bubbleThemeCss(bubbleTheme),
-        color: bubbleTheme?.textColor ?? '#2d2640',
-      }
-    : {
-        padding: '11px 16px',
-        borderRadius: 16,
-        fontSize: 15,
-        background: '#fff',
-        color: 'var(--text-dark)',
-      };
+  // Bubble color for "my" messages comes from the user's chosen bubble
+  // theme; the other side always uses the fixed surface-card look — only
+  // the theme-driven half needs an inline style.
+  const bubbleStyleMe = { background: bubbleThemeCss(bubbleTheme), color: bubbleTheme?.textColor ?? '#2d2640' };
 
   return (
-    <div style={{ display: 'flex', gap: 10, maxWidth: '100%', justifyContent: isMe ? 'flex-end' : 'flex-start' }}>
+    <div className={isMe ? styles.rowMe : styles.row}>
       {!isMe && <Avatar avatarId={avatarId} displayName={sender} size={38} fallbackColor={color} />}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: isMe ? 'flex-end' : 'flex-start', maxWidth: '65%' }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: isMe ? 'var(--text-muted)' : color }}>
+      <div className={isMe ? styles.contentMe : styles.content}>
+        <span className={isMe ? styles.senderNameMe : styles.senderName} style={isMe ? undefined : { color }}>
           {isMe ? 'You' : sender}
         </span>
-        <span style={{ ...bubbleStyle, wordBreak: 'break-word' }}>{msg.text}</span>
-        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{formatTime(msg.timestamp)}</span>
+        <span className={isMe ? styles.bubble : styles.bubbleOther} style={isMe ? bubbleStyleMe : undefined}>
+          {msg.text}
+        </span>
+        <span className={styles.timestamp}>{formatTime(msg.timestamp)}</span>
       </div>
       {isMe && <Avatar avatarId={avatarId} displayName={sender} size={38} fallbackColor={color} />}
     </div>

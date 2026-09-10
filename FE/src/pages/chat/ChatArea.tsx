@@ -49,6 +49,8 @@ export default function ChatArea({
       </div>
 
       <div className={styles.background} style={{ background: backgroundThemeCss(backgroundTheme) }}>
+        {!chat.connected && <div className={styles.disconnectedBanner}>⚠️ Disconnected</div>}
+
         {chat.notices.length > 0 && (
           <div className={styles.notices}>
             {chat.notices.map((n) => (
@@ -65,9 +67,9 @@ export default function ChatArea({
         {appearanceOpen && <AppearanceOverlay chat={chat} catalog={catalog} onClose={() => setAppearanceOpen(false)} />}
 
         <div className={styles.messageScroll} ref={scrollRef}>
-          {chat.messages.map((msg, i) => (
+          {chat.messages.map((msg) => (
             <MessageRow
-              key={i}
+              key={msg._id}
               msg={msg}
               myUsername={username}
               myAvatarId={chat.profile?.avatarId}
@@ -79,12 +81,13 @@ export default function ChatArea({
         <div className={styles.inputBar}>
           <input
             className={styles.textInput}
-            placeholder="Type a message..."
+            placeholder={chat.connected ? 'Type a message...' : 'Disconnected...'}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && submit()}
+            disabled={!chat.connected}
           />
-          <button className={styles.sendButton} onClick={submit}>
+          <button className={styles.sendButton} onClick={submit} disabled={!chat.connected}>
             Send
           </button>
         </div>

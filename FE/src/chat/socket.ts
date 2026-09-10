@@ -1,3 +1,4 @@
+import { apiBase } from '../api/client';
 import type { WireMessage } from './types';
 
 export interface ChatSocketHandlers {
@@ -6,12 +7,26 @@ export interface ChatSocketHandlers {
   onClose?: (event: CloseEvent) => void;
 }
 
+// Derives the WS origin from the same VITE_API_BASE_URL used for REST calls
+// (see api/client.ts), instead of always assuming same-origin — a split
+// deploy (FE served separately from BE) would otherwise send WS traffic to
+// the FE's own host, which has no /ws endpoint.
+function wsOrigin(): string {
+  const base = apiBase();
+  if (!base) {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${protocol}//${window.location.host}`;
+  }
+  const url = new URL(base);
+  const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${url.host}`;
+}
+
 export class ChatSocket {
   private ws: WebSocket;
 
   constructor(token: string, handlers: ChatSocketHandlers) {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    this.ws = new WebSocket(`${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`);
+    this.ws = new WebSocket(`${wsOrigin()}/ws?token=${encodeURIComponent(token)}`);
 
     this.ws.onopen = () => handlers.onOpen?.();
     this.ws.onclose = (event) => handlers.onClose?.(event);

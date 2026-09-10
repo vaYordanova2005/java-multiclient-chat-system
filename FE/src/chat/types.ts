@@ -47,8 +47,18 @@ export function dmRoomKey(a: string, b: string): string {
   return a < b ? `dm_${a}_${b}` : `dm_${b}_${a}`;
 }
 
+// Mirrors BE's `room.split("_", 3)` (ClientHandler/MessageDAO/UserDAO): split
+// on only the first two underscores so a `_` inside a username (if one ever
+// got past UsernameValidator's alnum-only whitelist) wouldn't shift which
+// piece is which. JS's `split(sep, limit)` truncates instead of keeping the
+// remainder joined like Java's does, so this is done manually.
 export function otherDmUser(room: string, self: string): string {
-  const parts = room.split('_');
-  if (parts.length < 3) return '';
-  return parts[1] === self ? parts[2]! : parts[1]!;
+  const first = room.indexOf('_');
+  if (first < 0) return '';
+  const second = room.indexOf('_', first + 1);
+  if (second < 0) return '';
+  const user1 = room.slice(first + 1, second);
+  const user2 = room.slice(second + 1);
+  if (!user1 || !user2) return '';
+  return user1 === self ? user2 : user1;
 }

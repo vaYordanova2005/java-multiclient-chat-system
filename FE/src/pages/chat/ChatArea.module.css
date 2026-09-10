@@ -22,7 +22,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #00b894;
+  background: var(--status-online);
 }
 
 .spacer {
@@ -70,7 +70,7 @@
   border: none;
   border-radius: 10px;
   padding: 10px;
-  background: #fff;
+  background: var(--surface-card);
   color: var(--text-dark);
   font-size: 15px;
 }
@@ -84,10 +84,30 @@
   border-radius: 10px;
   padding: 10px 18px;
   background: var(--lilac-6);
-  color: #fff;
+  color: var(--text-inverse);
   font-weight: 700;
   font-size: 15px;
   cursor: pointer;
+}
+
+.sendButton:disabled,
+.textInput:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.disconnectedBanner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  text-align: center;
+  padding: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--danger-soft-text);
+  background: var(--danger-soft);
 }
 
 .notices {
@@ -103,7 +123,7 @@
 }
 
 .notice {
-  background: #fff;
+  background: var(--surface-card);
   border-radius: 10px;
   padding: 8px 14px;
   font-size: 13px;

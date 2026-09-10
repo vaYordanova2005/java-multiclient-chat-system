@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ChatController } from '../../chat/useChat';
 import Avatar, { AVATAR_CATALOG } from '../../components/Avatar';
 import styles from './SettingsTab.module.css';
@@ -31,12 +31,25 @@ export default function SettingsTab({ chat, username }: { chat: ChatController; 
 function ProfileSection({ chat, username }: { chat: ChatController; username: string }) {
   const [name, setName] = useState(username);
   const [status, setStatus] = useState('');
+  const [awaitingResponse, setAwaitingResponse] = useState(false);
+
+  // The BE reply (success or "error") always arrives as a new notice — clear
+  // the optimistic "Saving..." status once one shows up, instead of leaving
+  // it stuck forever on failure (the notice itself carries the outcome).
+  useEffect(() => {
+    if (awaitingResponse) {
+      setStatus('');
+      setAwaitingResponse(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chat.notices]);
 
   function save() {
     const trimmed = name.trim();
     if (!trimmed) return;
     chat.changeUsername(trimmed);
     setStatus('Saving...');
+    setAwaitingResponse(true);
   }
 
   return (
@@ -161,6 +174,18 @@ function SocialSection({ chat }: { chat: ChatController }) {
 function DangerSection({ chat }: { chat: ChatController }) {
   const [password, setPassword] = useState('');
   const [status, setStatus] = useState('');
+  const [awaitingResponse, setAwaitingResponse] = useState(false);
+
+  // Same reasoning as ProfileSection: a wrong password comes back as a
+  // "error" notice, not a thrown exception, so without this the button just
+  // shows "Processing..." forever.
+  useEffect(() => {
+    if (awaitingResponse) {
+      setStatus('');
+      setAwaitingResponse(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chat.notices]);
 
   function confirmDelete() {
     if (!password) {
@@ -169,6 +194,7 @@ function DangerSection({ chat }: { chat: ChatController }) {
     }
     chat.deleteAccount(password);
     setStatus('Processing...');
+    setAwaitingResponse(true);
   }
 
   return (

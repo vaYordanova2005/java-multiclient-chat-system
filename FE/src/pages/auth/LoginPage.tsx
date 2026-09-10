@@ -24,7 +24,7 @@ export default function LoginPage() {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const user = username.trim();
-    const pass = password.trim();
+    const pass = password;
     if (!user || !pass) {
       setStatus({ text: '❌ Please fill in all fields', variant: 'error' });
       return;

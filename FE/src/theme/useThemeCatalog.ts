@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { apiBase } from '../api/client';
 import type { ThemeCatalog } from './catalog';
 
 const FALLBACK: ThemeCatalog = {
@@ -17,7 +18,7 @@ export function useThemeCatalog(): { catalog: ThemeCatalog; loading: boolean } {
 
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/themes')
+    fetch(`${apiBase()}/api/themes`)
       .then((res) => res.json())
       .then((data: ThemeCatalog) => {
         if (!cancelled) setCatalog(data);

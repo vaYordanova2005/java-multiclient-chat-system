@@ -25,20 +25,34 @@ function toneFromText(text: string): Notice['tone'] {
 }
 
 let noticeSeq = 0;
+let messageSeq = 0;
+
+// Wraps WireMessage with a client-side monotonic id so list rendering has a
+// stable React key — `msg` fields alone can collide (two "message" events
+// with no timestamp) and an array index breaks the moment history is
+// prepended (e.g. pagination) instead of only ever appended.
+export interface DisplayMessage extends WireMessage {
+  _id: number;
+}
 
 interface UseChatOptions {
   token: string;
   username: string;
   onUsernameChanged: (newUsername: string, newToken: string) => void;
   onAccountDeleted: () => void;
+  // Fires when the socket closes without ever having opened — the only
+  // signal the FE gets that TokenAuthHandshakeInterceptor rejected the
+  // token (expired/invalid). A forced disconnect (login elsewhere) closes
+  // an already-open socket instead and is surfaced via `connected` only.
+  onAuthFailed: () => void;
 }
 
 export type ChatController = ReturnType<typeof useChat>;
 
-export function useChat({ token, username, onUsernameChanged, onAccountDeleted }: UseChatOptions) {
+export function useChat({ token, username, onUsernameChanged, onAccountDeleted, onAuthFailed }: UseChatOptions) {
   const [connected, setConnected] = useState(false);
   const [currentRoom, setCurrentRoom] = useState(GLOBAL_ROOM);
-  const [messages, setMessages] = useState<WireMessage[]>([]);
+  const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [dmPartners, setDmPartners] = useState<string[]>([]);
   const [friends, setFriends] = useState<FriendInfo[]>([]);
   const [blocked, setBlocked] = useState<string[]>([]);
@@ -70,10 +84,28 @@ export function useChat({ token, username, onUsernameChanged, onAccountDeleted }
     themeRef.current = theme;
   }, [theme]);
 
+  const noticeTimeouts = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+
   const pushNotice = useCallback((text: string) => {
     const id = ++noticeSeq;
     setNotices((prev) => [...prev, { id, text, tone: toneFromText(text) }]);
-    setTimeout(() => setNotices((prev) => prev.filter((n) => n.id !== id)), 4000);
+    const timeout = setTimeout(() => {
+      setNotices((prev) => prev.filter((n) => n.id !== id));
+      noticeTimeouts.current.delete(id);
+    }, 4000);
+    noticeTimeouts.current.set(id, timeout);
+  }, []);
+
+  useEffect(() => {
+    const timeouts = noticeTimeouts.current;
+    return () => {
+      timeouts.forEach(clearTimeout);
+      timeouts.clear();
+    };
+  }, []);
+
+  const appendMessage = useCallback((msg: WireMessage) => {
+    setMessages((prev) => [...prev, { ...msg, _id: ++messageSeq }]);
   }, []);
 
   const incrementUnread = useCallback((room: string) => {
@@ -149,8 +181,10 @@ export function useChat({ token, username, onUsernameChanged, onAccountDeleted }
           return;
         }
         case 'username_changed': {
-          if (msg.text && msg.token) onUsernameChanged(msg.text, msg.token);
-          pushNotice(`✅ Username changed to ${msg.text}`);
+          if (msg.text && msg.token) {
+            onUsernameChanged(msg.text, msg.token);
+            pushNotice(`✅ Username changed to ${msg.text}`);
+          }
           return;
         }
         case 'account_deleted': {
@@ -162,7 +196,7 @@ export function useChat({ token, username, onUsernameChanged, onAccountDeleted }
           return;
         }
         case 'system': {
-          setMessages((prev) => [...prev, msg]);
+          appendMessage(msg);
           return;
         }
         case 'dm': {
@@ -170,7 +204,7 @@ export function useChat({ token, username, onUsernameChanged, onAccountDeleted }
           addDmPartner(otherUser);
           const roomKey = dmRoomKey(self, otherUser);
           if (msg.room && msg.room === currentRoomRef.current) {
-            setMessages((prev) => [...prev, msg]);
+            appendMessage(msg);
           } else if (msg.user !== self) {
             incrementUnread(roomKey);
           }
@@ -179,25 +213,48 @@ export function useChat({ token, username, onUsernameChanged, onAccountDeleted }
         default: {
           // "message" and anything else room-scoped.
           if (msg.room && msg.room === currentRoomRef.current) {
-            setMessages((prev) => [...prev, msg]);
+            appendMessage(msg);
           } else if (msg.room) {
             incrementUnread(msg.room);
           }
         }
       }
     },
-    [addDmPartner, incrementUnread, onAccountDeleted, onUsernameChanged, pushNotice],
+    [addDmPartner, appendMessage, incrementUnread, onAccountDeleted, onUsernameChanged, pushNotice],
   );
 
+  // handleServerMessage/onAuthFailed close over per-render state (current
+  // room, etc.) and would otherwise force the socket to be torn down and
+  // reopened on every render if listed as effect deps. Routing calls through
+  // a ref keeps the effect scoped to just `token` without going stale.
+  const handleServerMessageRef = useRef(handleServerMessage);
   useEffect(() => {
+    handleServerMessageRef.current = handleServerMessage;
+  }, [handleServerMessage]);
+
+  const onAuthFailedRef = useRef(onAuthFailed);
+  useEffect(() => {
+    onAuthFailedRef.current = onAuthFailed;
+  }, [onAuthFailed]);
+
+  useEffect(() => {
+    let opened = false;
     const socket = new ChatSocket(token, {
-      onOpen: () => setConnected(true),
-      onClose: () => setConnected(false),
-      onMessage: handleServerMessage,
+      onOpen: () => {
+        opened = true;
+        setConnected(true);
+      },
+      onClose: () => {
+        setConnected(false);
+        // Handshake was rejected (expired/invalid token) — the socket never
+        // reached onOpen. A forced disconnect (login elsewhere) closes an
+        // already-open socket and doesn't hit this branch.
+        if (!opened) onAuthFailedRef.current();
+      },
+      onMessage: (msg) => handleServerMessageRef.current(msg),
     });
     socketRef.current = socket;
     return () => socket.close();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   const send = useCallback((payload: WireMessage) => socketRef.current?.send(payload), []);

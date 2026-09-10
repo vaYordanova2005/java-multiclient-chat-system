@@ -14,6 +14,12 @@
   font-weight: 700;
 }
 
+.panelHeader {
+  color: var(--text-dark);
+  font-size: 16px;
+  font-weight: 700;
+}
+
 .sectionMeta {
   color: var(--text-muted);
   font-size: 12px;
@@ -35,7 +41,7 @@
   border: none;
   border-radius: 8px;
   padding: 6px 8px;
-  background: #fff;
+  background: var(--surface-card);
   color: var(--text-dark);
   font-size: 14px;
 }
@@ -49,7 +55,7 @@
   border-radius: 8px;
   padding: 6px 10px;
   background: var(--lilac-6);
-  color: #fff;
+  color: var(--text-inverse);
   cursor: pointer;
 }
 
@@ -87,9 +93,14 @@
   font-weight: 700;
 }
 
+.rowNameNormal {
+  composes: rowName;
+  font-weight: 400;
+}
+
 .unreadBadge {
   background: var(--lilac-6);
-  color: #fff;
+  color: var(--text-inverse);
   font-size: 11px;
   font-weight: 700;
   padding: 1px 6px;
@@ -99,4 +110,132 @@
 .emptyHint {
   color: var(--text-muted);
   font-size: 12px;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px;
+  background: var(--surface-card);
+  border-radius: 6px;
+}
+
+.cardName {
+  flex: 1;
+  color: var(--text-dark);
+  font-size: 14px;
+}
+
+.linkButton {
+  background: none;
+  border: none;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.addButton {
+  composes: linkButton;
+  color: var(--lilac-6);
+  text-decoration: underline;
+}
+
+.friendsButton {
+  composes: linkButton;
+  color: var(--success-soft-text);
+  font-size: 12px;
+}
+
+.blockedBadge {
+  color: var(--danger-soft-text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.sentLabel {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.onlineDotSmall {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--status-online);
+  flex-shrink: 0;
+}
+
+.presenceDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.presenceDotOnline {
+  composes: presenceDot;
+  background: var(--status-online);
+}
+
+.presenceDotOffline {
+  composes: presenceDot;
+  background: var(--status-offline);
+}
+
+.presenceText {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.pendingBox {
+  background: var(--lilac-4);
+  border-radius: 8px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pendingTitle {
+  color: var(--text-dark);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.actionButton {
+  border: none;
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.acceptButton {
+  composes: actionButton;
+  background: var(--success-soft);
+  color: var(--success-soft-text);
+}
+
+.declineButton {
+  composes: actionButton;
+  background: var(--danger-soft);
+  color: var(--danger-soft-text);
+}
+
+.notFriendsBox {
+  margin: 4px 0 4px 34px;
+  padding: 8px;
+  background: var(--surface-card);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-dark);
 }

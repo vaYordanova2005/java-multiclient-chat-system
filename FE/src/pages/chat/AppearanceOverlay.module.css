@@ -9,7 +9,7 @@
   width: 300px;
   max-height: 70vh;
   overflow-y: auto;
-  background: #fff;
+  background: var(--surface-card);
   border-radius: 14px;
   padding: 16px;
   box-shadow: 0 5px 20px 0 rgba(122, 111, 148, 0.35);

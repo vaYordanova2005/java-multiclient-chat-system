@@ -43,8 +43,8 @@ export default function ForgotPasswordPage() {
   async function handleStep2(e: FormEvent) {
     e.preventDefault();
     const trimmedAnswer = answer.trim();
-    const pass = newPassword.trim();
-    const passRepeat = newPasswordRepeat.trim();
+    const pass = newPassword;
+    const passRepeat = newPasswordRepeat;
 
     if (!trimmedAnswer || !pass) {
       setStatus('❌ Fill in all fields');

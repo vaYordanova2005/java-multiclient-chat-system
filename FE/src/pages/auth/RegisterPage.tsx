@@ -22,8 +22,8 @@ export default function RegisterPage() {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const user = username.trim();
-    const pass = password.trim();
-    const rep = repeatPassword.trim();
+    const pass = password;
+    const rep = repeatPassword;
     const question = securityQuestion.trim();
     const answer = securityAnswer.trim();
 

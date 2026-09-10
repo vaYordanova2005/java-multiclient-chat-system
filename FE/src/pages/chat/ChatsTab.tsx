@@ -39,28 +39,15 @@ export default function ChatsTab({ chat, username }: { chat: ChatController; use
       </div>
 
       {chat.searchResults.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div className={common.list}>
           {chat.searchResults.map((sr) => (
-            <div
-              key={sr.username}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: 5,
-                background: '#fff',
-                borderRadius: 6,
-              }}
-            >
-              <Avatar avatarId={undefined} displayName={sr.username} size={30} fallbackColor={sr.color} />
-              <span style={{ flex: 1, color: 'var(--text-dark)', fontSize: 14 }}>{sr.username}</span>
+            <div key={sr.username} className={common.card}>
+              <Avatar avatarId={chat.peerAvatars[sr.username]} displayName={sr.username} size={30} fallbackColor={sr.color} />
+              <span className={common.cardName}>{sr.username}</span>
               {chat.blocked.includes(sr.username) ? (
-                <span style={{ color: 'var(--danger-soft-text)', fontSize: 12, fontWeight: 700 }}>🚫 Blocked</span>
+                <span className={common.blockedBadge}>🚫 Blocked</span>
               ) : sr.isFriend ? (
-                <button
-                  style={{ background: 'none', border: 'none', color: 'var(--success-soft-text)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
-                  onClick={() => chat.openDM(sr.username)}
-                >
+                <button className={common.friendsButton} onClick={() => chat.openDM(sr.username)}>
                   ✓ Friends
                 </button>
               ) : (
@@ -84,27 +71,16 @@ export default function ChatsTab({ chat, username }: { chat: ChatController; use
       <div>
         <div className={common.sectionTitle}>ONLINE</div>
         <div className={common.sectionMeta}>({visibleOnline.length})</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 4 }}>
+        <div className={common.list}>
           {visibleOnline.map((u) => (
             <div key={u}>
               <div className={common.row} onClick={() => handleOnlineUserClick(u)}>
                 <Avatar avatarId={chat.peerAvatars[u]} displayName={u} size={26} />
-                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#00b894', flexShrink: 0 }} />
-                <span className={common.rowName} style={{ fontWeight: 400 }}>
-                  {u}
-                </span>
+                <span className={common.onlineDotSmall} />
+                <span className={common.rowNameNormal}>{u}</span>
               </div>
               {expandedUser === u && (
-                <div
-                  style={{
-                    margin: '4px 0 4px 34px',
-                    padding: 8,
-                    background: '#fff',
-                    borderRadius: 8,
-                    fontSize: 13,
-                    color: 'var(--text-dark)',
-                  }}
-                >
+                <div className={common.notFriendsBox}>
                   You are not friends with {u}.
                   <div>
                     <SendRequestButton chat={chat} target={u} onSent={() => setExpandedUser(null)} />
@@ -120,7 +96,7 @@ export default function ChatsTab({ chat, username }: { chat: ChatController; use
 
       <div>
         <div className={common.sectionTitle}>CHATS</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 4 }}>
+        <div className={common.list}>
           {chat.dmPartners.map((partner) => (
             <RoomRow
               key={partner}
@@ -139,18 +115,10 @@ export default function ChatsTab({ chat, username }: { chat: ChatController; use
 
 function SendRequestButton({ chat, target, onSent }: { chat: ChatController; target: string; onSent?: () => void }) {
   const [sent, setSent] = useState(false);
-  if (sent) return <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>Sent ✓</span>;
+  if (sent) return <span className={common.sentLabel}>Sent ✓</span>;
   return (
     <button
-      style={{
-        background: 'none',
-        border: 'none',
-        color: 'var(--lilac-6)',
-        textDecoration: 'underline',
-        fontSize: 13,
-        fontWeight: 700,
-        cursor: 'pointer',
-      }}
+      className={common.addButton}
       onClick={() => {
         chat.sendFriendRequest(target);
         setSent(true);
