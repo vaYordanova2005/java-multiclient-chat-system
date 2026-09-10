@@ -127,8 +127,28 @@ export function useChat({ token, username, onUsernameChanged, onAccountDeleted, 
     };
   }, []);
 
+  // Content signature, not identity — the wire protocol has no stable
+  // per-message id (see BE/model/Message.java) to key on. Guards against a
+  // room's history genuinely arriving twice: e.g. switch A -> B -> A fast
+  // enough and clearRoomStale(A) (see requestRoomJoin) correctly un-marks A
+  // so real new activity in it isn't dropped — but that also means the
+  // still-in-flight reply to the *first*, abandoned visit to A is no longer
+  // stale-suppressed either, and lands right alongside the second visit's
+  // own reply for the exact same rows. Two distinct live messages colliding
+  // on this key would need the same user, text, and timestamp down to
+  // whatever precision the BE stamps (effectively nanoseconds) — the room
+  // isn't part of the key on purpose, since messages is always cleared on
+  // room switch anyway.
+  function messageSignature(msg: WireMessage): string {
+    return `${msg.type}|${msg.user ?? ''}|${msg.text ?? ''}|${msg.timestamp ?? ''}|${msg.receiver ?? ''}`;
+  }
+
   const appendMessage = useCallback((msg: WireMessage) => {
-    setMessages((prev) => [...prev, { ...msg, _id: ++messageSeq }]);
+    setMessages((prev) => {
+      const sig = messageSignature(msg);
+      if (prev.some((m) => messageSignature(m) === sig)) return prev;
+      return [...prev, { ...msg, _id: ++messageSeq }];
+    });
   }, []);
 
   const incrementUnread = useCallback((room: string) => {
