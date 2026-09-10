@@ -25,6 +25,22 @@ function toneFromText(text: string): Notice['tone'] {
   return 'info';
 }
 
+// Content signature, not identity — the wire protocol has no stable
+// per-message id (see BE/model/Message.java) to key on. Guards against a
+// room's history genuinely arriving twice: e.g. switch A -> B -> A fast
+// enough and clearRoomStale(A) (see requestRoomJoin) correctly un-marks A
+// so real new activity in it isn't dropped — but that also means the
+// still-in-flight reply to the *first*, abandoned visit to A is no longer
+// stale-suppressed either, and lands right alongside the second visit's
+// own reply for the exact same rows. Two distinct live messages colliding
+// on this key would need the same user, text, and timestamp down to
+// whatever precision the BE stamps (effectively nanoseconds) — the room
+// isn't part of the key on purpose, since messages is always cleared on
+// room switch anyway.
+function messageSignature(msg: WireMessage): string {
+  return `${msg.type}|${msg.user ?? ''}|${msg.text ?? ''}|${msg.timestamp ?? ''}|${msg.receiver ?? ''}`;
+}
+
 let noticeSeq = 0;
 let messageSeq = 0;
 
@@ -127,28 +143,17 @@ export function useChat({ token, username, onUsernameChanged, onAccountDeleted, 
     };
   }, []);
 
-  // Content signature, not identity — the wire protocol has no stable
-  // per-message id (see BE/model/Message.java) to key on. Guards against a
-  // room's history genuinely arriving twice: e.g. switch A -> B -> A fast
-  // enough and clearRoomStale(A) (see requestRoomJoin) correctly un-marks A
-  // so real new activity in it isn't dropped — but that also means the
-  // still-in-flight reply to the *first*, abandoned visit to A is no longer
-  // stale-suppressed either, and lands right alongside the second visit's
-  // own reply for the exact same rows. Two distinct live messages colliding
-  // on this key would need the same user, text, and timestamp down to
-  // whatever precision the BE stamps (effectively nanoseconds) — the room
-  // isn't part of the key on purpose, since messages is always cleared on
-  // room switch anyway.
-  function messageSignature(msg: WireMessage): string {
-    return `${msg.type}|${msg.user ?? ''}|${msg.text ?? ''}|${msg.timestamp ?? ''}|${msg.receiver ?? ''}`;
-  }
+  // Signatures of everything currently in `messages`, kept in lockstep with
+  // it so a dedupe check is a Set lookup instead of an O(n) rescan of the
+  // whole array (O(n²) across a full history load) — must be cleared
+  // wherever `messages` itself is reset to [].
+  const seenSignaturesRef = useRef<Set<string>>(new Set());
 
   const appendMessage = useCallback((msg: WireMessage) => {
-    setMessages((prev) => {
-      const sig = messageSignature(msg);
-      if (prev.some((m) => messageSignature(m) === sig)) return prev;
-      return [...prev, { ...msg, _id: ++messageSeq }];
-    });
+    const sig = messageSignature(msg);
+    if (seenSignaturesRef.current.has(sig)) return;
+    seenSignaturesRef.current.add(sig);
+    setMessages((prev) => [...prev, { ...msg, _id: ++messageSeq }]);
   }, []);
 
   const incrementUnread = useCallback((room: string) => {
@@ -374,6 +379,7 @@ export function useChat({ token, username, onUsernameChanged, onAccountDeleted, 
           // actually was — clear the stale view and resync instead of
           // appending a second copy of everything on top of it.
           setMessages([]);
+          seenSignaturesRef.current.clear();
           const room = currentRoomRef.current;
           if (room !== GLOBAL_ROOM) {
             // BE's own auto-reload above already targeted "global", not
@@ -408,6 +414,7 @@ export function useChat({ token, username, onUsernameChanged, onAccountDeleted, 
       currentRoomRef.current = room;
       setCurrentRoom(room);
       setMessages([]);
+      seenSignaturesRef.current.clear();
       clearUnread(room);
       requestRoomJoin(room);
     },

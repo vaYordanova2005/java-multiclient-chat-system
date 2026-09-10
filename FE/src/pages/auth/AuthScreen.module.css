@@ -11,6 +11,11 @@
   background: var(--lilac-3);
 }
 
+.loginPage {
+  composes: page;
+  background: linear-gradient(165deg, #c9168e 0%, #6a2aa8 45%, #1e2fae 100%);
+}
+
 .card {
   width: 100%;
   max-width: 340px;

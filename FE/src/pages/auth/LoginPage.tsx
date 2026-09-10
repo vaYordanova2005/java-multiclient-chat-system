@@ -48,7 +48,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className={styles.page}>
+    <div className={styles.loginPage}>
       <form className={styles.card} onSubmit={handleSubmit}>
         <div
           className={
