@@ -108,19 +108,6 @@ public class ClientHandler {
         // leave съобщение в тоя случай).
         if (!kicked) {
             log.info("Client disconnected: {}", username);
-            // Козметична бележка: ако потребителят се е преименувал по-рано в
-            // тая сесия, "has entered"/"has left" текстовете за него в
-            // историята остават с различни имена (старото при entered, новото
-            // тук) — messages.message е свободен текст, не се пипа от
-            // UserDAO.changeUsername (само sender/receiver/room колоните).
-            // Не е бъг, само визуална неконсистентност в старите системни редове.
-            Message leave = new Message("system", "SERVER", "#b2bec3",
-                    username + " has left the chat");
-            leave.timestamp = getTime();
-            leave.room = this.currentRoom;
-
-            messageDAO.saveMessage(leave);
-            broadcastToRoom(this.currentRoom, gson.toJson(leave));
         }
 
         if (onDisconnectCallback != null) onDisconnectCallback.run();
@@ -157,14 +144,6 @@ public class ClientHandler {
         pushBlockedList(this);
         pushProfileInfo(this);
         pushDmConversations(this);
-
-        Message join = new Message("system", "SERVER", "#b2bec3",
-                username + " has entered the chat");
-        join.timestamp = getTime();
-        join.room = this.currentRoom;
-
-        messageDAO.saveMessage(join);
-        broadcastToRoom(join.room, gson.toJson(join));
     }
 
     // ISO-8601 (UTC), не "HH:mm" — виж MessageDAO/schema.sql за същата смяна
