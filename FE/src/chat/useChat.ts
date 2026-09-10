@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { ChatSocket } from './socket';
+import { decodeExpiry } from '../auth/token';
 import {
   GLOBAL_ROOM,
   dmRoomKey,
@@ -79,6 +80,14 @@ export function useChat({ token, username, onUsernameChanged, onAccountDeleted, 
   const currentRoomRef = useRef(currentRoom);
   const usernameRef = useRef(username);
   const themeRef = useRef(theme);
+  // Set right after a *reconnect* (not the first connect) when the room
+  // we're actually viewing isn't "global" — see the onOpen handler below.
+  // ClientHandler.start() unconditionally reloads "global" history (and
+  // rebroadcasts a join notice) on every fresh connection before our own
+  // room_join for this room can even be processed, so anything tagged for a
+  // different room while this is set is that stale burst, not new activity.
+  const resyncTargetRoomRef = useRef<string | null>(null);
+  const resyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     currentRoomRef.current = currentRoom;
@@ -130,6 +139,29 @@ export function useChat({ token, username, onUsernameChanged, onAccountDeleted, 
 
   const addDmPartner = useCallback((partner: string) => {
     setDmPartners((prev) => (prev.includes(partner) ? prev : [...prev, partner]));
+  }, []);
+
+  // True while `msg` should be treated as the stale post-reconnect "global"
+  // burst rather than real activity (see resyncTargetRoomRef above) — drop
+  // it outright instead of appending it into the wrong room or inflating
+  // that room's unread badge. Clears itself the moment the target room's
+  // own data starts arriving, which is also a signal worth reacting to
+  // (nothing further to absorb), not just a check.
+  const absorbDuringResync = useCallback((msg: WireMessage): boolean => {
+    const target = resyncTargetRoomRef.current;
+    // Roomless pushes (e.g. a direct "X accepted your friend request"
+    // notice) aren't part of the per-room reload burst at all — never
+    // absorb those, regardless of resync state.
+    if (!target || !msg.room) return false;
+    if (msg.room === target) {
+      resyncTargetRoomRef.current = null;
+      if (resyncTimeoutRef.current) {
+        clearTimeout(resyncTimeoutRef.current);
+        resyncTimeoutRef.current = null;
+      }
+      return false;
+    }
+    return true;
   }, []);
 
   // ── Incoming message dispatch — mirrors legacy/Main.java's handleServerMessage ──
@@ -204,10 +236,16 @@ export function useChat({ token, username, onUsernameChanged, onAccountDeleted, 
           return;
         }
         case 'system': {
-          appendMessage(msg);
+          if (absorbDuringResync(msg)) return;
+          // Room-scoped (join/leave, via broadcastToRoom) only ever
+          // disagrees with currentRoomRef during the resync window above;
+          // roomless ones (e.g. a direct "friend request accepted" notice)
+          // are always relevant regardless of the active room.
+          if (!msg.room || msg.room === currentRoomRef.current) appendMessage(msg);
           return;
         }
         case 'dm': {
+          if (absorbDuringResync(msg)) return;
           const otherUser = msg.user === self ? msg.receiver! : msg.user!;
           addDmPartner(otherUser);
           const roomKey = dmRoomKey(self, otherUser);
@@ -219,6 +257,7 @@ export function useChat({ token, username, onUsernameChanged, onAccountDeleted, 
           return;
         }
         default: {
+          if (absorbDuringResync(msg)) return;
           // "message" and anything else room-scoped.
           if (msg.room && msg.room === currentRoomRef.current) {
             appendMessage(msg);
@@ -228,7 +267,7 @@ export function useChat({ token, username, onUsernameChanged, onAccountDeleted, 
         }
       }
     },
-    [addDmPartner, appendMessage, incrementUnread, onAccountDeleted, onUsernameChanged, pushNotice],
+    [absorbDuringResync, addDmPartner, appendMessage, incrementUnread, onAccountDeleted, onUsernameChanged, pushNotice],
   );
 
   // handleServerMessage/onAuthFailed close over per-render state (current
@@ -245,20 +284,71 @@ export function useChat({ token, username, onUsernameChanged, onAccountDeleted, 
     onAuthFailedRef.current = onAuthFailed;
   }, [onAuthFailed]);
 
+  // ChatSocket only re-checks expiry on its own close/reconnect — a socket
+  // that stays open the whole time (TokenService.verify only runs at
+  // handshake, not per-message) would otherwise sail past `exp` unnoticed
+  // until something else happens to disconnect it. Schedule a timer for the
+  // token's own expiry directly so a still-open connection gets logged out
+  // right on time instead of on the next unrelated hiccup.
+  useEffect(() => {
+    const exp = decodeExpiry(token);
+    if (exp === null) return;
+    const delay = exp - Date.now();
+    if (delay <= 0) {
+      onAuthFailedRef.current();
+      return;
+    }
+    const timer = setTimeout(() => onAuthFailedRef.current(), delay);
+    return () => clearTimeout(timer);
+  }, [token]);
+
   useEffect(() => {
     // Reconnect-with-backoff and the expiry-based auth-failure check both
     // live inside ChatSocket now (see socket.ts) — a plain close/error here
     // says nothing about *why* the connection dropped (dead BE, sleeping
     // laptop, and a genuinely rejected token all look identical), so this
     // hook just reflects `connected` and defers to ChatSocket's own signal.
+    let hadConnectedBefore = false;
     const socket = new ChatSocket(token, {
-      onOpen: () => setConnected(true),
+      onOpen: () => {
+        setConnected(true);
+        if (hadConnectedBefore) {
+          // ClientHandler.start() runs the exact same "reset to global,
+          // reload its history, rebroadcast a join notice" sequence on
+          // every fresh connection, with no memory of where this client
+          // actually was — clear the stale view and resync instead of
+          // appending a second copy of everything on top of it.
+          setMessages([]);
+          const room = currentRoomRef.current;
+          if (room !== GLOBAL_ROOM) {
+            // BE's own auto-reload above already targeted "global", not
+            // this room — ask for the right one. absorbDuringResync drops
+            // that now-irrelevant "global" burst instead of it leaking
+            // into this room's view or unread count while we wait.
+            resyncTargetRoomRef.current = room;
+            if (resyncTimeoutRef.current) clearTimeout(resyncTimeoutRef.current);
+            resyncTimeoutRef.current = setTimeout(() => {
+              resyncTargetRoomRef.current = null;
+              resyncTimeoutRef.current = null;
+            }, 5000);
+            socket.send({ type: 'room_join', room });
+          }
+        }
+        hadConnectedBefore = true;
+      },
       onClose: () => setConnected(false),
       onMessage: (msg) => handleServerMessageRef.current(msg),
       onAuthFailed: () => onAuthFailedRef.current(),
     });
     socketRef.current = socket;
-    return () => socket.close();
+    return () => {
+      socket.close();
+      if (resyncTimeoutRef.current) {
+        clearTimeout(resyncTimeoutRef.current);
+        resyncTimeoutRef.current = null;
+      }
+      resyncTargetRoomRef.current = null;
+    };
   }, [token]);
 
   const send = useCallback((payload: WireMessage) => socketRef.current?.send(payload), []);
@@ -266,6 +356,12 @@ export function useChat({ token, username, onUsernameChanged, onAccountDeleted, 
   const changeRoom = useCallback(
     (room: string) => {
       if (room === currentRoomRef.current) return;
+      // A manual switch supersedes any pending post-reconnect resync.
+      resyncTargetRoomRef.current = null;
+      if (resyncTimeoutRef.current) {
+        clearTimeout(resyncTimeoutRef.current);
+        resyncTimeoutRef.current = null;
+      }
       currentRoomRef.current = room;
       setCurrentRoom(room);
       setMessages([]);

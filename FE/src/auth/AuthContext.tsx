@@ -60,6 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const stored: StoredSession = { ...next, expiresAt: decodeExpiry(next.token) };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
     setSession(next);
+    setLogoutNotice(null);
   }, []);
 
   const logout = useCallback((notice?: LogoutNotice) => {

@@ -73,10 +73,14 @@ export class ChatSocket {
         return;
       }
 
+      // Jitter the actual delay (not the stored backoff, so growth stays
+      // predictable) — otherwise every client reconnects in lockstep the
+      // moment a restarted BE comes back up.
+      const delay = this.backoff * (0.5 + Math.random() * 0.5);
       this.reconnectTimer = setTimeout(() => {
         this.reconnectTimer = null;
         this.connect();
-      }, this.backoff);
+      }, delay);
       this.backoff = Math.min(this.backoff * 2, MAX_BACKOFF_MS);
     };
 
