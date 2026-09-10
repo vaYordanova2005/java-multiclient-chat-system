@@ -43,7 +43,11 @@ export default function ChatArea({
         <span className={styles.title}>{title}</span>
         {isDm && otherOnline && <span className={styles.statusDot} />}
         <span className={styles.spacer} />
-        <button className={styles.appearanceToggle} onClick={() => setAppearanceOpen((v) => !v)}>
+        <button
+          className={styles.appearanceToggle}
+          data-appearance-toggle
+          onClick={() => setAppearanceOpen((v) => !v)}
+        >
           ⋯
         </button>
       </div>
