@@ -9,14 +9,16 @@ type StatusVariant = 'heading' | 'error' | 'success';
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const location = useLocation() as { state?: { username?: string; notice?: string } };
+  const location = useLocation() as {
+    state?: { username?: string; notice?: string; variant?: 'success' | 'error' };
+  };
   const auth = useAuth();
 
   const [username, setUsername] = useState(location.state?.username ?? '');
   const [password, setPassword] = useState('');
   const [status, setStatus] = useState<{ text: string; variant: StatusVariant }>(
     location.state?.notice
-      ? { text: location.state.notice, variant: 'success' }
+      ? { text: location.state.notice, variant: location.state.variant ?? 'success' }
       : { text: 'Welcome Back!', variant: 'heading' },
   );
   const [submitting, setSubmitting] = useState(false);

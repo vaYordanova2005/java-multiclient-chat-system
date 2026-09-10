@@ -33,16 +33,17 @@ function ProfileSection({ chat, username }: { chat: ChatController; username: st
   const [status, setStatus] = useState('');
   const [awaitingResponse, setAwaitingResponse] = useState(false);
 
-  // The BE reply (success or "error") always arrives as a new notice — clear
-  // the optimistic "Saving..." status once one shows up, instead of leaving
-  // it stuck forever on failure (the notice itself carries the outcome).
+  // chat.responseSeq only bumps on an actual username_changed/error reply —
+  // unlike chat.notices, it doesn't also tick when some unrelated toast's
+  // 4s auto-dismiss timer fires, which would otherwise clear "Saving..."
+  // before the BE has actually responded.
   useEffect(() => {
     if (awaitingResponse) {
       setStatus('');
       setAwaitingResponse(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chat.notices]);
+  }, [chat.responseSeq]);
 
   function save() {
     const trimmed = name.trim();
@@ -176,16 +177,17 @@ function DangerSection({ chat }: { chat: ChatController }) {
   const [status, setStatus] = useState('');
   const [awaitingResponse, setAwaitingResponse] = useState(false);
 
-  // Same reasoning as ProfileSection: a wrong password comes back as a
-  // "error" notice, not a thrown exception, so without this the button just
-  // shows "Processing..." forever.
+  // Same reasoning as ProfileSection: a wrong password comes back as an
+  // "error" reply, not a thrown exception, so without this the button just
+  // shows "Processing..." forever. Tracks chat.responseSeq (not
+  // chat.notices) so an unrelated toast expiring can't clear it early.
   useEffect(() => {
     if (awaitingResponse) {
       setStatus('');
       setAwaitingResponse(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chat.notices]);
+  }, [chat.responseSeq]);
 
   function confirmDelete() {
     if (!password) {

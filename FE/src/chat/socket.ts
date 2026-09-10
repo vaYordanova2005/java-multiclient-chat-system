@@ -1,11 +1,22 @@
 import { apiBase } from '../api/client';
+import { isTokenExpired } from '../auth/token';
 import type { WireMessage } from './types';
 
 export interface ChatSocketHandlers {
   onMessage: (msg: WireMessage) => void;
   onOpen?: () => void;
-  onClose?: (event: CloseEvent) => void;
+  onClose?: () => void;
+  // Fires once we've positively confirmed (by decoding the token's own exp,
+  // not by the mere fact that a connection attempt failed) that the session
+  // is dead and retrying is pointless. A close/error event on its own is
+  // NOT enough signal — the browser reports the exact same close (no onopen,
+  // code 1006) whether the handshake was rejected for an expired token, the
+  // BE is down, a dev proxy dropped, or the machine just woke from sleep.
+  onAuthFailed?: () => void;
 }
+
+const INITIAL_BACKOFF_MS = 1000;
+const MAX_BACKOFF_MS = 30000;
 
 // Derives the WS origin from the same VITE_API_BASE_URL used for REST calls
 // (see api/client.ts), instead of always assuming same-origin — a split
@@ -23,17 +34,56 @@ function wsOrigin(): string {
 }
 
 export class ChatSocket {
-  private ws: WebSocket;
+  private ws: WebSocket | null = null;
+  private readonly token: string;
+  private readonly handlers: ChatSocketHandlers;
+  private backoff = INITIAL_BACKOFF_MS;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private destroyed = false;
 
   constructor(token: string, handlers: ChatSocketHandlers) {
-    this.ws = new WebSocket(`${wsOrigin()}/ws?token=${encodeURIComponent(token)}`);
+    this.token = token;
+    this.handlers = handlers;
+    this.connect();
+  }
 
-    this.ws.onopen = () => handlers.onOpen?.();
-    this.ws.onclose = (event) => handlers.onClose?.(event);
-    this.ws.onmessage = (event) => {
+  private connect() {
+    // Checked before every attempt (not just the first) — a long backoff
+    // wait or a laptop sleep can cross the token's expiry while we were
+    // busy retrying.
+    if (isTokenExpired(this.token)) {
+      this.handlers.onAuthFailed?.();
+      return;
+    }
+
+    const ws = new WebSocket(`${wsOrigin()}/ws?token=${encodeURIComponent(this.token)}`);
+    this.ws = ws;
+
+    ws.onopen = () => {
+      this.backoff = INITIAL_BACKOFF_MS;
+      this.handlers.onOpen?.();
+    };
+
+    ws.onclose = () => {
+      this.handlers.onClose?.();
+      if (this.destroyed) return;
+
+      if (isTokenExpired(this.token)) {
+        this.handlers.onAuthFailed?.();
+        return;
+      }
+
+      this.reconnectTimer = setTimeout(() => {
+        this.reconnectTimer = null;
+        this.connect();
+      }, this.backoff);
+      this.backoff = Math.min(this.backoff * 2, MAX_BACKOFF_MS);
+    };
+
+    ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data) as WireMessage;
-        handlers.onMessage(msg);
+        this.handlers.onMessage(msg);
       } catch {
         // Malformed frame — ignore, matches legacy's silent drop on parse failure.
       }
@@ -41,12 +91,17 @@ export class ChatSocket {
   }
 
   send(payload: WireMessage) {
-    if (this.ws.readyState === WebSocket.OPEN) {
+    if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(payload));
     }
   }
 
   close() {
-    this.ws.close();
+    this.destroyed = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.ws?.close();
   }
 }

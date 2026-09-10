@@ -1,5 +1,4 @@
 import { useState, type CSSProperties } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../auth/AuthContext';
 import { useChat } from '../../chat/useChat';
 import { useThemeCatalog } from '../../theme/useThemeCatalog';
@@ -14,22 +13,18 @@ export type BottomTab = 'chats' | 'friends' | 'settings';
 
 export default function ChatPage() {
   const { session, login: setAuthSession, logout } = useAuth();
-  const navigate = useNavigate();
   const { catalog } = useThemeCatalog();
   const [bottomTab, setBottomTab] = useState<BottomTab>('chats');
 
+  // Redirecting to /login is RequireAuth's job, triggered by `session`
+  // turning null below — logout() carries the notice through context so
+  // there's exactly one <Navigate>, not this callback's own racing another.
   const chat = useChat({
     token: session!.token,
     username: session!.username,
     onUsernameChanged: (newUsername, newToken) => setAuthSession({ token: newToken, username: newUsername }),
-    onAccountDeleted: () => {
-      logout();
-      navigate('/login', { replace: true });
-    },
-    onAuthFailed: () => {
-      logout();
-      navigate('/login', { replace: true, state: { notice: '❌ Session expired — please log in again.' } });
-    },
+    onAccountDeleted: () => logout(),
+    onAuthFailed: () => logout({ text: '❌ Session expired — please log in again.', variant: 'error' }),
   });
 
   const uiTheme = catalog.uiThemes.find((t) => t.id === chat.theme.uiThemeId);

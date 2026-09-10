@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import { decodeExpiry } from './token';
 
 interface AuthSession {
   token: string;
@@ -6,36 +7,35 @@ interface AuthSession {
 }
 
 interface StoredSession extends AuthSession {
-  // epoch millis, decoded from the token's own payload (see TokenService.java —
-  // format is base64url(JSON payload incl. "exp").base64url(signature)). Not a
-  // security boundary (BE re-verifies the signature on every request/handshake),
-  // just lets the FE treat an expired token as "logged out" instead of walking
-  // straight into a socket that will refuse to open.
+  // epoch millis, decoded from the token's own payload — not a security
+  // boundary (BE re-verifies the signature on every request/handshake),
+  // just lets the FE treat an expired token as "logged out" instead of
+  // walking straight into a socket that will refuse to open.
   expiresAt: number | null;
+}
+
+export interface LogoutNotice {
+  text: string;
+  variant: 'success' | 'error';
 }
 
 interface AuthContextValue {
   session: AuthSession | null;
   login: (session: AuthSession) => void;
-  logout: () => void;
+  // `notice` is surfaced by RequireAuth's own redirect (see RequireAuth.tsx)
+  // instead of the caller separately calling useNavigate() itself — a
+  // logout() that flips `session` to null and a same-tick explicit
+  // navigate('/login', {state}) race: whichever's <Navigate> commits last
+  // wins, and RequireAuth's route-driven one (no state) can silently
+  // overwrite the caller's notice. Routing it all through one place removes
+  // the race instead of trying to win it.
+  logout: (notice?: LogoutNotice) => void;
+  logoutNotice: LogoutNotice | null;
 }
 
 const STORAGE_KEY = 'messenger.auth';
 
 const AuthContext = createContext<AuthContextValue | null>(null);
-
-function decodeExpiry(token: string): number | null {
-  try {
-    const payloadB64 = token.split('.')[0];
-    if (!payloadB64) return null;
-    const base64 = payloadB64.replace(/-/g, '+').replace(/_/g, '/');
-    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=');
-    const payload = JSON.parse(atob(padded)) as { exp?: unknown };
-    return typeof payload.exp === 'number' ? payload.exp : null;
-  } catch {
-    return null;
-  }
-}
 
 function readStoredSession(): AuthSession | null {
   try {
@@ -54,6 +54,7 @@ function readStoredSession(): AuthSession | null {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<AuthSession | null>(readStoredSession);
+  const [logoutNotice, setLogoutNotice] = useState<LogoutNotice | null>(null);
 
   const login = useCallback((next: AuthSession) => {
     const stored: StoredSession = { ...next, expiresAt: decodeExpiry(next.token) };
@@ -61,12 +62,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(next);
   }, []);
 
-  const logout = useCallback(() => {
+  const logout = useCallback((notice?: LogoutNotice) => {
     localStorage.removeItem(STORAGE_KEY);
     setSession(null);
+    setLogoutNotice(notice ?? null);
   }, []);
 
-  const value = useMemo(() => ({ session, login, logout }), [session, login, logout]);
+  const value = useMemo(
+    () => ({ session, login, logout, logoutNotice }),
+    [session, login, logout, logoutNotice],
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

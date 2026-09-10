@@ -40,10 +40,10 @@ interface UseChatOptions {
   username: string;
   onUsernameChanged: (newUsername: string, newToken: string) => void;
   onAccountDeleted: () => void;
-  // Fires when the socket closes without ever having opened — the only
-  // signal the FE gets that TokenAuthHandshakeInterceptor rejected the
-  // token (expired/invalid). A forced disconnect (login elsewhere) closes
-  // an already-open socket instead and is surfaced via `connected` only.
+  // Fires only once ChatSocket has decoded the token's own exp and confirmed
+  // it's actually expired — see socket.ts. A merely unreachable BE (or a
+  // forced disconnect from logging in elsewhere) never reaches this; those
+  // just show up via `connected` while ChatSocket keeps retrying.
   onAuthFailed: () => void;
 }
 
@@ -68,6 +68,12 @@ export function useChat({ token, username, onUsernameChanged, onAccountDeleted, 
   });
   const [profile, setProfile] = useState<ProfileInfo | null>(null);
   const [notices, setNotices] = useState<Notice[]>([]);
+  // Bumped only by the two message types that are actually "a settings
+  // request got a reply" (username_changed/error) — unlike `notices`, it
+  // doesn't also tick over when an unrelated notice's 4s auto-dismiss timer
+  // fires, which would otherwise let an in-flight "Saving..." get cleared by
+  // a completely unrelated toast expiring.
+  const [responseSeq, setResponseSeq] = useState(0);
 
   const socketRef = useRef<ChatSocket | null>(null);
   const currentRoomRef = useRef(currentRoom);
@@ -185,6 +191,7 @@ export function useChat({ token, username, onUsernameChanged, onAccountDeleted, 
             onUsernameChanged(msg.text, msg.token);
             pushNotice(`✅ Username changed to ${msg.text}`);
           }
+          setResponseSeq((n) => n + 1);
           return;
         }
         case 'account_deleted': {
@@ -193,6 +200,7 @@ export function useChat({ token, username, onUsernameChanged, onAccountDeleted, 
         }
         case 'error': {
           if (msg.text) pushNotice(msg.text);
+          setResponseSeq((n) => n + 1);
           return;
         }
         case 'system': {
@@ -238,20 +246,16 @@ export function useChat({ token, username, onUsernameChanged, onAccountDeleted, 
   }, [onAuthFailed]);
 
   useEffect(() => {
-    let opened = false;
+    // Reconnect-with-backoff and the expiry-based auth-failure check both
+    // live inside ChatSocket now (see socket.ts) — a plain close/error here
+    // says nothing about *why* the connection dropped (dead BE, sleeping
+    // laptop, and a genuinely rejected token all look identical), so this
+    // hook just reflects `connected` and defers to ChatSocket's own signal.
     const socket = new ChatSocket(token, {
-      onOpen: () => {
-        opened = true;
-        setConnected(true);
-      },
-      onClose: () => {
-        setConnected(false);
-        // Handshake was rejected (expired/invalid token) — the socket never
-        // reached onOpen. A forced disconnect (login elsewhere) closes an
-        // already-open socket and doesn't hit this branch.
-        if (!opened) onAuthFailedRef.current();
-      },
+      onOpen: () => setConnected(true),
+      onClose: () => setConnected(false),
       onMessage: (msg) => handleServerMessageRef.current(msg),
+      onAuthFailed: () => onAuthFailedRef.current(),
     });
     socketRef.current = socket;
     return () => socket.close();
@@ -363,6 +367,7 @@ export function useChat({ token, username, onUsernameChanged, onAccountDeleted, 
     theme,
     profile,
     notices,
+    responseSeq,
     switchToGlobal,
     openDM,
     sendChatMessage,

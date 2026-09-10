@@ -49,7 +49,7 @@ export default function ChatArea({
       </div>
 
       <div className={styles.background} style={{ background: backgroundThemeCss(backgroundTheme) }}>
-        {!chat.connected && <div className={styles.disconnectedBanner}>⚠️ Disconnected</div>}
+        {!chat.connected && <div className={styles.disconnectedBanner}>⚠️ Disconnected — reconnecting…</div>}
 
         {chat.notices.length > 0 && (
           <div className={styles.notices}>
