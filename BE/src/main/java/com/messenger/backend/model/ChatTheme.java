@@ -40,6 +40,53 @@ public class ChatTheme {
             SKY_1, SKY_2, SKY_3, SKY_4, SKY_5, SKY_6
     };
 
+    // ============================================================
+    // БАЗОВА ПАЛИТРА "Vivid" — ярки, наситени цветове (за разлика от
+    // пастелните Lilac/Sky по-горе), градиент жълто → оранжево → червено →
+    // магента → лилаво → синьо, по заявка на потребителя за по-ярки теми.
+    // ============================================================
+    public static final String VIVID_1 = "#FFD93B"; // слънчево жълто
+    public static final String VIVID_2 = "#FFA630"; // мандарина
+    public static final String VIVID_3 = "#FF6B4A"; // коралово оранжево
+    public static final String VIVID_4 = "#F03A47"; // мак/червено
+    public static final String VIVID_5 = "#E91E8C"; // магента
+    public static final String VIVID_6 = "#B32FD4"; // орхидея
+    public static final String VIVID_7 = "#7B3FE4"; // виолетово
+    public static final String VIVID_8 = "#3D6FE0"; // електриково синьо
+
+    public static final String[] VIVID_PALETTE = {
+            VIVID_1, VIVID_2, VIVID_3, VIVID_4, VIVID_5, VIVID_6, VIVID_7, VIVID_8
+    };
+
+    // ============================================================
+    // "Vivid" ПРИГЛУШЕНИ ЗА ФОН — VIVID_* по-горе са с пълна наситеност,
+    // добри за малки повърхности (балончета, UI accent swatch), но заливат
+    // целия чат екран и правят текста нечетим. Тия версии са същите нюанси,
+    // смесени ~35% към бяло — колкото да паднат на нивото на яркост на левия
+    // панел (пастелните LILAC/SKY фонове), без да стават пастелно избелени.
+    // Използват се САМО за BackgroundTheme, никога за bubble/UI.
+    // ============================================================
+    public static final String VIVID_BG_1 = "#FFE680"; // мека слънчева жълта
+    public static final String VIVID_BG_2 = "#FFC578"; // мека мандаринова
+    public static final String VIVID_BG_3 = "#FF9F89"; // мека коралова
+    public static final String VIVID_BG_4 = "#F57F87"; // мека червена/мак
+    public static final String VIVID_BG_5 = "#F16DB4"; // мека магента
+    public static final String VIVID_BG_6 = "#CE78E3"; // мека орхидея
+    public static final String VIVID_BG_7 = "#A982ED"; // мека виолетова
+    public static final String VIVID_BG_8 = "#81A1EB"; // мека електриково синя
+
+    // ============================================================
+    // 6 НОВИ непастелни нюанса (извън жълто→синьо спектъра на Vivid) —
+    // директно калибрирани на същото ~35%-към-бяло ниво на яркост, за да
+    // не се повтори грешката с твърде наситен фон на цял екран.
+    // ============================================================
+    public static final String VIVID_BG_TEAL      = "#66D1C5"; // тийл
+    public static final String VIVID_BG_EMERALD   = "#6FD996"; // изумрудено зелено
+    public static final String VIVID_BG_LIME      = "#C3EF7C"; // лайм
+    public static final String VIVID_BG_ROSE      = "#F88296"; // роза
+    public static final String VIVID_BG_TURQUOISE = "#5DD0E3"; // тюркоаз
+    public static final String VIVID_BG_AMBER     = "#F9C060"; // кехлибарено жълто
+
     // Текст върху светъл пастелен фон — тъмно лилаво-сиво, не черно (по-мек контраст)
     public static final String TEXT_DARK   = "#3d3458";
     public static final String TEXT_MUTED  = "#7a6f94";
@@ -112,13 +159,49 @@ public class ChatTheme {
     private static final BackgroundTheme BG_OMBRE_SKY = new BackgroundTheme(
             "bg_ombre_sky", "Ocean Breeze", BubbleThemeType.OMBRE, new String[]{SKY_1, SKY_6});
 
+    // ── "Vivid" solid + омбре фонове — приглушени VIVID_BG_* нюанси, не
+    // суровите VIVID_* (тия заливаха целия екран и давеха текста) ──
+    private static final BackgroundTheme BG_SOLID_SUNFLOWER = new BackgroundTheme(
+            "bg_solid_sunflower", "Sunflower", BubbleThemeType.SOLID, new String[]{VIVID_BG_1});
+    private static final BackgroundTheme BG_SOLID_COBALT = new BackgroundTheme(
+            "bg_solid_cobalt", "Cobalt", BubbleThemeType.SOLID, new String[]{VIVID_BG_8});
+    private static final BackgroundTheme BG_OMBRE_TROPICAL_SUNSET = new BackgroundTheme(
+            "bg_ombre_tropical_sunset", "Tropical Sunset", BubbleThemeType.OMBRE,
+            new String[]{VIVID_BG_1, VIVID_BG_3, VIVID_BG_5});
+    private static final BackgroundTheme BG_OMBRE_COSMIC_FADE = new BackgroundTheme(
+            "bg_ombre_cosmic_fade", "Cosmic Fade", BubbleThemeType.OMBRE,
+            new String[]{VIVID_BG_6, VIVID_BG_7, VIVID_BG_8});
+    private static final BackgroundTheme BG_OMBRE_FULL_SPECTRUM = new BackgroundTheme(
+            "bg_ombre_full_spectrum", "Full Spectrum", BubbleThemeType.OMBRE,
+            new String[]{VIVID_BG_1, VIVID_BG_4, VIVID_BG_6, VIVID_BG_8});
+
+    // ── 6 нови непастелни solid фона (същото приглушено ниво на яркост) ──
+    private static final BackgroundTheme BG_SOLID_TEAL = new BackgroundTheme(
+            "bg_solid_teal", "Teal", BubbleThemeType.SOLID, new String[]{VIVID_BG_TEAL});
+    private static final BackgroundTheme BG_SOLID_EMERALD = new BackgroundTheme(
+            "bg_solid_emerald", "Emerald", BubbleThemeType.SOLID, new String[]{VIVID_BG_EMERALD});
+    private static final BackgroundTheme BG_SOLID_LIME = new BackgroundTheme(
+            "bg_solid_lime", "Lime", BubbleThemeType.SOLID, new String[]{VIVID_BG_LIME});
+    private static final BackgroundTheme BG_SOLID_ROSE = new BackgroundTheme(
+            "bg_solid_rose", "Rose", BubbleThemeType.SOLID, new String[]{VIVID_BG_ROSE});
+    private static final BackgroundTheme BG_SOLID_TURQUOISE = new BackgroundTheme(
+            "bg_solid_turquoise", "Turquoise", BubbleThemeType.SOLID, new String[]{VIVID_BG_TURQUOISE});
+    private static final BackgroundTheme BG_SOLID_AMBER = new BackgroundTheme(
+            "bg_solid_amber", "Amber", BubbleThemeType.SOLID, new String[]{VIVID_BG_AMBER});
+
     public static final List<BackgroundTheme> ALL_BACKGROUND_THEMES = List.of(
             BG_SOLID_PERIWINKLE, BG_SOLID_LILAC, BG_SOLID_MIST, BG_SOLID_BLUSH,
-            BG_SOLID_SKY_ICE, BG_SOLID_SKY,
-            BG_OMBRE_2, BG_OMBRE_3, BG_OMBRE_4, BG_OMBRE_SKY
+            BG_SOLID_SKY_ICE, BG_SOLID_SKY, BG_SOLID_SUNFLOWER, BG_SOLID_COBALT,
+            BG_SOLID_TEAL, BG_SOLID_EMERALD, BG_SOLID_LIME,
+            BG_SOLID_ROSE, BG_SOLID_TURQUOISE, BG_SOLID_AMBER,
+            BG_OMBRE_2, BG_OMBRE_3, BG_OMBRE_4, BG_OMBRE_SKY,
+            BG_OMBRE_TROPICAL_SUNSET, BG_OMBRE_COSMIC_FADE, BG_OMBRE_FULL_SPECTRUM
     );
 
-    public static final String DEFAULT_BACKGROUND_THEME_ID = "bg_ombre_3";
+    // По желание на потребителя: "dev" акаунтът сложи Sky/Electric Blue и
+    // помоли това да стане приложението-широк дефолт вместо предишния
+    // пастелен "Dreamer" (bg_ombre_3).
+    public static final String DEFAULT_BACKGROUND_THEME_ID = "bg_solid_sky";
 
     public static BackgroundTheme getBackgroundThemeById(String id) {
         if (id == null) return getDefaultBackgroundTheme();
@@ -202,6 +285,23 @@ public class ChatTheme {
             "solid_sky", "Sky", BubbleThemeType.SOLID,
             new String[]{SKY_6}, "#FFFFFF"); // наситен periwinkle-индиго -> бял текст
 
+    // ── 4 ярки едноцветни теми ("Vivid" палитра) ────────────────
+    private static final BubbleTheme SOLID_SUNFLOWER = new BubbleTheme(
+            "solid_sunflower", "Sunflower", BubbleThemeType.SOLID,
+            new String[]{VIVID_1}, TEXT_ON_BUBBLE);
+
+    private static final BubbleTheme SOLID_POPPY = new BubbleTheme(
+            "solid_poppy", "Poppy", BubbleThemeType.SOLID,
+            new String[]{VIVID_4}, "#FFFFFF");
+
+    private static final BubbleTheme SOLID_MAGENTA = new BubbleTheme(
+            "solid_magenta", "Magenta", BubbleThemeType.SOLID,
+            new String[]{VIVID_5}, "#FFFFFF");
+
+    private static final BubbleTheme SOLID_ELECTRIC_BLUE = new BubbleTheme(
+            "solid_electric_blue", "Electric Blue", BubbleThemeType.SOLID,
+            new String[]{VIVID_8}, "#FFFFFF");
+
     // ── 5 пастелни омбре теми ──────────────────────────────────
     private static final BubbleTheme OMBRE_SUNSET = new BubbleTheme(
             "ombre_sunset", "Sunset Glow", BubbleThemeType.OMBRE,
@@ -227,12 +327,40 @@ public class ChatTheme {
             "ombre_sky", "Ocean Breeze", BubbleThemeType.OMBRE,
             new String[]{SKY_1, SKY_6}, TEXT_ON_BUBBLE);
 
+    // ── 6 ярки омбре теми ("Vivid" палитра, 2 цвята всяка) ──────
+    private static final BubbleTheme OMBRE_GOLDEN_HOUR = new BubbleTheme(
+            "ombre_golden_hour", "Golden Hour", BubbleThemeType.OMBRE,
+            new String[]{VIVID_1, VIVID_2}, TEXT_ON_BUBBLE);
+
+    private static final BubbleTheme OMBRE_BLAZING_SUNSET = new BubbleTheme(
+            "ombre_blazing_sunset", "Blazing Sunset", BubbleThemeType.OMBRE,
+            new String[]{VIVID_2, VIVID_4}, "#FFFFFF");
+
+    private static final BubbleTheme OMBRE_FUCHSIA_FIRE = new BubbleTheme(
+            "ombre_fuchsia_fire", "Fuchsia Fire", BubbleThemeType.OMBRE,
+            new String[]{VIVID_4, VIVID_5}, "#FFFFFF");
+
+    private static final BubbleTheme OMBRE_BERRY_PUNCH = new BubbleTheme(
+            "ombre_berry_punch", "Berry Punch", BubbleThemeType.OMBRE,
+            new String[]{VIVID_5, VIVID_6}, "#FFFFFF");
+
+    private static final BubbleTheme OMBRE_COSMIC_VIOLET = new BubbleTheme(
+            "ombre_cosmic_violet", "Cosmic Violet", BubbleThemeType.OMBRE,
+            new String[]{VIVID_6, VIVID_7}, "#FFFFFF");
+
+    private static final BubbleTheme OMBRE_ELECTRIC_DUSK = new BubbleTheme(
+            "ombre_electric_dusk", "Electric Dusk", BubbleThemeType.OMBRE,
+            new String[]{VIVID_7, VIVID_8}, "#FFFFFF");
+
     public static final List<BubbleTheme> ALL_BUBBLE_THEMES = List.of(
             SOLID_LAVENDER, SOLID_BLUSH, SOLID_ORCHID, SOLID_PERIWINKLE, SOLID_MINT, SOLID_SKY,
-            OMBRE_SUNSET, OMBRE_TWILIGHT, OMBRE_COTTON_CANDY, OMBRE_PEACH_LILAC, OMBRE_AURORA, OMBRE_SKY
+            SOLID_SUNFLOWER, SOLID_POPPY, SOLID_MAGENTA, SOLID_ELECTRIC_BLUE,
+            OMBRE_SUNSET, OMBRE_TWILIGHT, OMBRE_COTTON_CANDY, OMBRE_PEACH_LILAC, OMBRE_AURORA, OMBRE_SKY,
+            OMBRE_GOLDEN_HOUR, OMBRE_BLAZING_SUNSET, OMBRE_FUCHSIA_FIRE,
+            OMBRE_BERRY_PUNCH, OMBRE_COSMIC_VIOLET, OMBRE_ELECTRIC_DUSK
     );
 
-    public static final String DEFAULT_BUBBLE_THEME_ID = "solid_periwinkle";
+    public static final String DEFAULT_BUBBLE_THEME_ID = "solid_electric_blue";
 
     public static BubbleTheme getBubbleThemeById(String id) {
         if (id == null) return getDefaultBubbleTheme();
@@ -284,10 +412,13 @@ public class ChatTheme {
             new UiTheme("ui_sky_3", "Sky", SKY_3),
             new UiTheme("ui_sky_4", "Soft Sky", SKY_4),
             new UiTheme("ui_sky_5", "Ocean", SKY_5),
-            new UiTheme("ui_sky_6", "Deep Sky", SKY_6)
+            new UiTheme("ui_sky_6", "Deep Sky", SKY_6),
+            new UiTheme("ui_vivid_poppy", "Poppy", VIVID_4),
+            new UiTheme("ui_vivid_violet", "Violet", VIVID_7),
+            new UiTheme("ui_vivid_electric_blue", "Electric Blue", VIVID_8)
     );
 
-    public static final String DEFAULT_UI_THEME_ID = "ui_lilac";
+    public static final String DEFAULT_UI_THEME_ID = "ui_vivid_electric_blue";
 
     public static UiTheme getUiThemeById(String id) {
         if (id == null) return getDefaultUiTheme();
