@@ -1,0 +1,107 @@
+.wrapper {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 10;
+}
+
+.panel {
+  width: 300px;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: #fff;
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: 0 5px 20px 0 rgba(122, 111, 148, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.title {
+  color: var(--text-dark);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.closeButton {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.sectionTitle {
+  color: var(--lilac-6);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.subLabel {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.hint {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.swatchGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.swatch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 4px;
+  border-radius: 10px;
+  cursor: pointer;
+  border: 2px solid transparent;
+}
+
+.swatchSelected {
+  composes: swatch;
+  border-color: var(--lilac-6);
+}
+
+.swatchSelectedDark {
+  composes: swatch;
+  border-color: var(--text-dark);
+}
+
+.swatchPreview {
+  width: 46px;
+  height: 30px;
+  border-radius: 10px;
+}
+
+.uiSwatchPreview {
+  width: 30px;
+  height: 30px;
+  border-radius: 15px;
+}
+
+.swatchLabel {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.divider {
+  border: none;
+  border-top: 1px solid rgba(122, 111, 148, 0.15);
+  margin: 0;
+}
