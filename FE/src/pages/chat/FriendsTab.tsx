@@ -51,7 +51,7 @@ export default function FriendsTab({ chat, onOpenFriend }: { chat: ChatControlle
                   }
                 }}
               >
-                <Avatar avatarId={chat.peerAvatars[friend.username]} displayName={friend.username} size={30} fallbackColor="#00b894" />
+                <Avatar avatarId={chat.peerAvatars[friend.username]} displayName={friend.username} size={30} fallbackColor={friend.color} />
                 <span className={common.rowNameNormal}>{friend.username}</span>
                 <span className={online ? common.presenceDotOnline : common.presenceDotOffline} />
                 <span className={common.presenceText}>{online ? 'online' : 'offline'}</span>
