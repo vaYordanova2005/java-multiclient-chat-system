@@ -18,8 +18,9 @@ import org.springframework.web.bind.annotation.RestController;
 // тяло е конвенционално за React FE (fetch, без нужда да се отваря сокет само
 // за да се логнеш) и се дебъгва директно в browser dev tools/Network tab —
 // виж README "REST auth, WebSocket само за чат/съобщения" за пълния разбор.
-// WS-ът вече изисква ?token= от тук получен token (виж TokenAuthHandshakeInterceptor)
-// и не приема НИКАКВИ pre-auth команди повече — ClientHandler е auth-only.
+// WS-ът вече изисква тоя token през Sec-WebSocket-Protocol header-а (виж
+// TokenAuthHandshakeInterceptor) и не приема НИКАКВИ pre-auth команди повече
+// — ClientHandler е auth-only.
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
@@ -139,13 +140,16 @@ public class AuthController {
                 .body(new ErrorResponse("Wrong username or password"));
     }
 
+    // Returned instead of the real question when the username doesn't exist
+    // (or has no security question set) — same 200 + same shape as a real
+    // hit, so the response itself can't be used to tell which usernames are
+    // registered. reset/verify already fails identically ("Incorrect
+    // answer") either way, so a bogus username just dead-ends there like a
+    // wrong answer would.
+    private static final String DECOY_SECURITY_QUESTION = "What is the answer to your security question?";
+
     @PostMapping("/reset/question")
     public ResponseEntity<?> getResetQuestion(@RequestBody ResetQuestionRequest req, HttpServletRequest httpReq) {
-        // Без тоя лимит endpoint-ът е free-cost username-enumeration oracle
-        // (404 срещу 200 разграничава кои username-и съществуват) И директно
-        // връща security въпроса — първата половина на reset флоуто — без
-        // никаква цена за атакуващия. Останалите три auth endpoint-а вече
-        // викат тая проверка; тоя я пропускаше.
         String ip = clientIp(httpReq);
         if (!rateLimiter.checkRequestRateLimit(ip)) {
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
@@ -153,11 +157,7 @@ public class AuthController {
         }
 
         String question = userDAO.getSecurityQuestion(req.username());
-        if (question == null) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(new ErrorResponse("No account found or no security question set"));
-        }
-        return ResponseEntity.ok(new ResetQuestionResponse(question));
+        return ResponseEntity.ok(new ResetQuestionResponse(question != null ? question : DECOY_SECURITY_QUESTION));
     }
 
     @PostMapping("/reset/verify")

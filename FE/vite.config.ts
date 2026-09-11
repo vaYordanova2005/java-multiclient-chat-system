@@ -1,5 +1,7 @@
 import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vite'
+// 'vitest/config' re-exports vite's defineConfig with the `test` key typed —
+// plain 'vite' doesn't know about it.
+import { defineConfig } from 'vitest/config'
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -11,5 +13,9 @@ export default defineConfig({
       '/api': 'http://localhost:5000',
       '/ws': { target: 'ws://localhost:5000', ws: true },
     },
+  },
+  test: {
+    environment: 'jsdom',
+    globals: false,
   },
 })

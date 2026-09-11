@@ -56,7 +56,15 @@ export class ChatSocket {
       return;
     }
 
-    const ws = new WebSocket(`${wsOrigin()}/ws?token=${encodeURIComponent(this.token)}`);
+    // Carried as the Sec-WebSocket-Protocol request header (via the
+    // constructor's second arg) instead of a "?token=" query param — the
+    // query string is the thing proxy/server access logs record by default,
+    // and this header isn't. Server side: TokenAuthHandshakeInterceptor
+    // reads it the same way. Safe as a subprotocol token: TokenService's
+    // base64url(payload) + "." + base64url(signature) format only ever uses
+    // [A-Za-z0-9_-.], all valid per the HTTP token grammar the WebSocket
+    // handshake requires here.
+    const ws = new WebSocket(`${wsOrigin()}/ws`, [this.token]);
     this.ws = ws;
 
     ws.onopen = () => {
