@@ -44,8 +44,9 @@ public class WebSocketConfig implements WebSocketConfigurer {
         //
         // Два interceptor-а, изпълнени по ред: ClientIpHandshakeInterceptor
         // резолвира реалния IP (за connection limit-а в ChatWebSocketHandler),
-        // после TokenAuthHandshakeInterceptor проверява "?token=" (от REST
-        // login-а) и отказва handshake-а изцяло при липсващ/невалиден token.
+        // после TokenAuthHandshakeInterceptor проверява Sec-WebSocket-Protocol
+        // header-а (token-ът от REST login-а) и отказва handshake-а изцяло
+        // при липсващ/невалиден token.
         registry.addHandler(chatWebSocketHandler, "/ws")
                 .addInterceptors(new ClientIpHandshakeInterceptor(trustProxyHeaders),
                         new TokenAuthHandshakeInterceptor(tokenService))

@@ -16,12 +16,12 @@ CREATE TABLE IF NOT EXISTS users (
     color                  VARCHAR(7),
     security_question      VARCHAR(255),
     security_answer_hash   VARCHAR(255),
-    bubble_theme           VARCHAR(30) DEFAULT 'solid_periwinkle',
-    background_theme       VARCHAR(30) DEFAULT 'bg_ombre_3',
+    bubble_theme           VARCHAR(30) DEFAULT 'solid_electric_blue',
+    background_theme       VARCHAR(30) DEFAULT 'bg_solid_sky',
     -- Recovered from code (UserDAO.getThemePreferences/setUiTheme, and the
     -- legacy client), not present in the original migration history — see
     -- BE/README.md for context.
-    ui_theme               VARCHAR(30) DEFAULT 'ui_lilac',
+    ui_theme               VARCHAR(30) DEFAULT 'ui_vivid_electric_blue',
     avatar_id              VARCHAR(20),
     show_online_status     BOOLEAN DEFAULT TRUE
 );

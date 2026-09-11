@@ -1,0 +1,65 @@
+.systemWrapper {
+  display: flex;
+  justify-content: center;
+}
+
+.systemText {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 14px;
+  padding: 6px;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  max-width: 100%;
+  justify-content: flex-start;
+  align-items: center;
+}
+
+.rowMe {
+  composes: row;
+  justify-content: flex-end;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: flex-start;
+  max-width: 65%;
+}
+
+.contentMe {
+  composes: content;
+  align-items: flex-end;
+}
+
+.senderName {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.senderNameMe {
+  composes: senderName;
+  color: var(--text-muted);
+}
+
+.bubble {
+  padding: 11px 16px;
+  border-radius: 16px;
+  font-size: 15px;
+  word-break: break-word;
+}
+
+.bubbleOther {
+  composes: bubble;
+  background: var(--surface-card);
+  color: var(--text-dark);
+}
+
+.timestamp {
+  font-size: 12px;
+  color: var(--text-muted);
+}

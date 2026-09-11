@@ -1,0 +1,71 @@
+.root {
+  height: 100%;
+  display: flex;
+}
+
+.loading {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.leftPanel {
+  width: 250px;
+  min-width: 250px;
+  display: flex;
+  flex-direction: column;
+  background: var(--ui-panel-bg);
+}
+
+.tabSwitcher {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.bottomNav {
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+  background: var(--ui-nav-bg);
+}
+
+.navButton {
+  flex: 1;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  cursor: pointer;
+  background: transparent;
+  color: var(--text-dark);
+}
+
+.navButtonActive {
+  composes: navButton;
+  background: var(--ui-accent);
+  color: var(--ui-accent-text);
+  font-weight: 700;
+}
+
+.navButtonIconOnly {
+  composes: navButton;
+  flex: 0 0 auto;
+}
+
+.navButtonIconOnlyActive {
+  composes: navButtonIconOnly;
+  background: var(--ui-accent);
+  color: var(--ui-accent-text);
+  font-weight: 700;
+}
+
+.chatColumn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}

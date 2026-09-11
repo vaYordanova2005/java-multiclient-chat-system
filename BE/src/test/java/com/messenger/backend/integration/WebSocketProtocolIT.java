@@ -45,7 +45,7 @@ import static org.junit.jupiter.api.Assertions.fail;
 // -> ChatWebSocketHandler -> ClientHandler -> DAOs -> Testcontainers Postgres.
 // Auth вече е изцяло REST (виж README "REST auth, WebSocket само за
 // чат/съобщения") — сокетът не приема повече "AUTH_LOGIN|..." pre-auth
-// команди, само "?token=" на handshake-а.
+// команди, само Sec-WebSocket-Protocol header-а (token-а) на handshake-а.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Testcontainers
 class WebSocketProtocolIT {
@@ -116,8 +116,8 @@ class WebSocketProtocolIT {
 
         RecordingHandler handler = new RecordingHandler();
         StandardWebSocketClient client = new StandardWebSocketClient();
-        WebSocketSession session = client.execute(handler, new WebSocketHttpHeaders(),
-                URI.create("ws://localhost:" + port + "/ws?token=" + token)).get(10, TimeUnit.SECONDS);
+        WebSocketSession session = client.execute(handler, headersWithToken(token),
+                URI.create("ws://localhost:" + port + "/ws")).get(10, TimeUnit.SECONDS);
 
         try {
             Message outgoing = new Message();
@@ -182,8 +182,8 @@ class WebSocketProtocolIT {
         // ChatWebSocketHandler.afterConnectionEstablished е тоя, който отхвърля
         // връзката СЛЕД upgrade, чрез userDAO.userExists(). Затова тук чакаме
         // затварянето на сесията, не провал на самото свързване.
-        WebSocketSession session = client.execute(handler, new WebSocketHttpHeaders(),
-                URI.create("ws://localhost:" + port + "/ws?token=" + token)).get(10, TimeUnit.SECONDS);
+        WebSocketSession session = client.execute(handler, headersWithToken(token),
+                URI.create("ws://localhost:" + port + "/ws")).get(10, TimeUnit.SECONDS);
 
         try {
             CloseStatus closeStatus = handler.closed.get(10, TimeUnit.SECONDS);
@@ -202,11 +202,19 @@ class WebSocketProtocolIT {
         try {
             client.execute(handler, new WebSocketHttpHeaders(),
                     URI.create("ws://localhost:" + port + "/ws")).get(10, TimeUnit.SECONDS);
-            fail("handshake should have been rejected without a valid ?token=");
+            fail("handshake should have been rejected without a valid token");
         } catch (Exception expected) {
             // TokenAuthHandshakeInterceptor отказва handshake-а (401) — самото
             // свързване хвърля изключение, точно това тестваме тук.
         }
+    }
+
+    // Token-ът пътува през Sec-WebSocket-Protocol (виж
+    // TokenAuthHandshakeInterceptor), не през "?token=" query param.
+    private static WebSocketHttpHeaders headersWithToken(String token) {
+        WebSocketHttpHeaders headers = new WebSocketHttpHeaders();
+        headers.setSecWebSocketProtocol(java.util.List.of(token));
+        return headers;
     }
 
     private static class RecordingHandler extends TextWebSocketHandler {

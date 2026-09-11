@@ -1,0 +1,54 @@
+/*
+ * Ported 1:1 from legacy/ChatTheme.java (the "Lilac Dreamer" + "Sky" base
+ * palettes). Keep these in sync with ChatTheme.java by hand — BE/README.md
+ * flags this as a known duplication risk. The bubble/background/UI theme
+ * *catalogs* (used for the in-chat appearance picker) are NOT hardcoded here;
+ * those are fetched from GET /api/themes at startup (see src/theme/useThemeCatalog.ts)
+ * so that part can't drift. These tokens are just the base building blocks
+ * used by chrome that exists before login (auth screens) or isn't
+ * user-themeable (semantic success/danger colors).
+ */
+:root {
+  /* Lilac Dreamer base palette */
+  --lilac-1: #c8ceee; /* светло лилаво-синьо */
+  --lilac-2: #e8daf0; /* светло лилаво */
+  --lilac-3: #f3e4f5; /* почти бяло лилаво (app background) */
+  --lilac-4: #fcdce1; /* пастелно розово */
+  --lilac-5: #d8bee5; /* лилаво */
+  --lilac-6: #a7abde; /* по-наситено лилаво-синьо */
+
+  /* Sky base palette */
+  --sky-1: #d9f0f6;
+  --sky-2: #d5e3f0;
+  --sky-3: #c9d9f0;
+  --sky-4: #c1d5f0;
+  --sky-5: #b3cbef;
+  --sky-6: #a8b5e1;
+
+  /* Text */
+  --text-dark: #3d3458; /* тъмно лилаво-сиво, не черно */
+  --text-muted: #7a6f94;
+  --text-on-bubble: #2d2640;
+
+  /* Semantic (soft/pastel, not saturated) */
+  --success-soft: #9fe0c7;
+  --success-soft-text: #1f6e54;
+  --danger-soft: #f2a8b0;
+  --danger-soft-text: #7a2330;
+  --danger-soft-bg: #fce8ea;
+
+  /* Neutral chrome — pulled out of scattered inline styles/hardcoded hex so
+     there's one place to adjust the "white card on lilac" look and the
+     online/offline presence dot colors. */
+  --surface-card: #ffffff;
+  --text-inverse: #ffffff;
+  --status-online: #00b894;
+  --status-offline: #c2c2c2;
+
+  /* App chrome defaults — mirror ChatTheme's default UI theme (ui_lilac) */
+  --ui-accent: var(--lilac-6);
+  --ui-panel-bg: var(--lilac-2);
+  --ui-nav-bg: var(--lilac-1);
+  --ui-row-active-bg: var(--lilac-5);
+  --ui-accent-text: #ffffff;
+}
