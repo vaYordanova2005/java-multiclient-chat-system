@@ -20,13 +20,7 @@ app:
 
 spring:
   datasource:
-    # DB_URL wins if set (Neon etc. — a full pooled connection string with
-    # query params). Otherwise built from DB_HOST/DB_PORT/DB_NAME, which is
-    # what render.yaml wires up from Render's managed Postgres (it only
-    # exposes host/port/database as separate fromDatabase properties, not a
-    # ready-made jdbc: URL). Defaults match the old hardcoded value exactly,
-    # so plain local dev is unaffected.
-    url: ${DB_URL:jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:chatdb}}
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/chatdb}
     username: ${DB_USER:chatapp_user}
     password: ${DB_PASSWORD}
     hikari:
