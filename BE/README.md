@@ -246,8 +246,10 @@ itself; see `ClientIpHandshakeInterceptor` for the exact hop-selection logic.
 `ALLOWED_ORIGIN_PATTERNS` restricts which origins may open the `/ws`
 WebSocket connection (comma-separated, e.g.
 `https://my-app.vercel.app,https://my-app.onrender.com`). Defaults to `*`
-because there's no FE deploy domain to lock it to yet — narrow this to the
-real FE origin(s) before going to production; see `WebSocketConfig`.
+for local dev, where there's no fixed FE origin to lock it to. The live
+deployment sets it to `https://messenger-fe-18o2.onrender.com` (see the
+root [`README.md`](../README.md) "Live" link and `render.yaml`); see
+`WebSocketConfig`.
 
 `AUTH_TOKEN_SECRET` signs the session tokens `POST /api/auth/login` hands out
 (see "Auth: REST, not WebSocket" above and `TokenService`) — anyone who knows
