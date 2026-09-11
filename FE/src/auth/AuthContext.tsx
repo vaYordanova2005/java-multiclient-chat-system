@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
 import { decodeExpiry } from './token';
 
 interface AuthSession {
@@ -23,7 +23,10 @@ interface AuthContextValue {
   session: AuthSession | null;
   // `remember` picks where the session is persisted: localStorage (default,
   // survives closing the browser) vs sessionStorage (cleared when the tab
-  // closes) — the "Remember me" checkbox on LoginPage.
+  // closes) — the "Remember me" checkbox on LoginPage. Omitting it (e.g. the
+  // internal re-login that follows a username change) reuses whichever
+  // storage the current session already lives in, instead of silently
+  // re-defaulting to "remembered".
   login: (session: AuthSession, remember?: boolean) => void;
   // `notice` is surfaced by RequireAuth's own redirect (see RequireAuth.tsx)
   // instead of the caller separately calling useNavigate() itself — a
@@ -57,18 +60,28 @@ function readFrom(storage: Storage): AuthSession | null {
 
 // localStorage (remembered) takes precedence over sessionStorage
 // (this-tab-only) in the unlikely case both somehow hold a session.
-function readStoredSession(): AuthSession | null {
-  return readFrom(localStorage) ?? readFrom(sessionStorage);
+function readInitialAuth(): { session: AuthSession | null; remember: boolean } {
+  const remembered = readFrom(localStorage);
+  if (remembered) return { session: remembered, remember: true };
+  const tabOnly = readFrom(sessionStorage);
+  if (tabOnly) return { session: tabOnly, remember: false };
+  return { session: null, remember: true };
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<AuthSession | null>(readStoredSession);
+  const [initialAuth] = useState(readInitialAuth);
+  const [session, setSession] = useState<AuthSession | null>(initialAuth.session);
   const [logoutNotice, setLogoutNotice] = useState<LogoutNotice | null>(null);
+  // Not state — it doesn't drive rendering, just which Storage the next
+  // login() without an explicit `remember` should reuse.
+  const rememberRef = useRef(initialAuth.remember);
 
-  const login = useCallback((next: AuthSession, remember = true) => {
+  const login = useCallback((next: AuthSession, remember?: boolean) => {
+    const effectiveRemember = remember ?? rememberRef.current;
+    rememberRef.current = effectiveRemember;
     const stored: StoredSession = { ...next, expiresAt: decodeExpiry(next.token) };
-    const storage = remember ? localStorage : sessionStorage;
-    const other = remember ? sessionStorage : localStorage;
+    const storage = effectiveRemember ? localStorage : sessionStorage;
+    const other = effectiveRemember ? sessionStorage : localStorage;
     other.removeItem(STORAGE_KEY);
     storage.setItem(STORAGE_KEY, JSON.stringify(stored));
     setSession(next);

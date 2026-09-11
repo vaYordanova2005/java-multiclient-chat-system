@@ -189,6 +189,10 @@ public class ChatTheme {
     private static final BackgroundTheme BG_SOLID_AMBER = new BackgroundTheme(
             "bg_solid_amber", "Amber", BubbleThemeType.SOLID, new String[]{VIVID_BG_AMBER});
 
+    // FE/src/pages/chat/AppearanceOverlay.tsx keeps a HIDDEN_THEME_IDS set
+    // that hides a few near-duplicate hues from the picker by id. Adding a
+    // theme here doesn't update that set automatically — if the new entry
+    // visually duplicates an existing one, hide it there too.
     public static final List<BackgroundTheme> ALL_BACKGROUND_THEMES = List.of(
             BG_SOLID_PERIWINKLE, BG_SOLID_LILAC, BG_SOLID_MIST, BG_SOLID_BLUSH,
             BG_SOLID_SKY_ICE, BG_SOLID_SKY, BG_SOLID_SUNFLOWER, BG_SOLID_COBALT,
@@ -352,6 +356,8 @@ public class ChatTheme {
             "ombre_electric_dusk", "Electric Dusk", BubbleThemeType.OMBRE,
             new String[]{VIVID_7, VIVID_8}, "#FFFFFF");
 
+    // See the HIDDEN_THEME_IDS note on ALL_BACKGROUND_THEMES above — same
+    // applies here.
     public static final List<BubbleTheme> ALL_BUBBLE_THEMES = List.of(
             SOLID_LAVENDER, SOLID_BLUSH, SOLID_ORCHID, SOLID_PERIWINKLE, SOLID_MINT, SOLID_SKY,
             SOLID_SUNFLOWER, SOLID_POPPY, SOLID_MAGENTA, SOLID_ELECTRIC_BLUE,
@@ -400,6 +406,8 @@ public class ChatTheme {
         }
     }
 
+    // See the HIDDEN_THEME_IDS note on ALL_BACKGROUND_THEMES above — same
+    // applies here.
     public static final List<UiTheme> ALL_UI_THEMES = List.of(
             new UiTheme("ui_lilac", "Lilac", LILAC_6),
             new UiTheme("ui_periwinkle", "Periwinkle", LILAC_1),

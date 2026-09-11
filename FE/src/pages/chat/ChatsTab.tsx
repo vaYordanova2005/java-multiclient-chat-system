@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ChatController } from '../../chat/useChat';
 import { GLOBAL_ROOM, dmRoomKey } from '../../chat/types';
 import Avatar from '../../components/Avatar';
@@ -74,7 +74,18 @@ export default function ChatsTab({ chat, username }: { chat: ChatController; use
         <div className={common.list}>
           {visibleOnline.map((u) => (
             <div key={u}>
-              <div className={common.row} onClick={() => handleOnlineUserClick(u)}>
+              <div
+                className={common.row}
+                onClick={() => handleOnlineUserClick(u)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    handleOnlineUserClick(u);
+                  }
+                }}
+              >
                 <Avatar avatarId={chat.peerAvatars[u]} displayName={u} size={26} />
                 <span className={common.onlineDotSmall} />
                 <span className={common.rowNameNormal}>{u}</span>
@@ -114,18 +125,36 @@ export default function ChatsTab({ chat, username }: { chat: ChatController; use
 }
 
 function SendRequestButton({ chat, target, onSent }: { chat: ChatController; target: string; onSent?: () => void }) {
-  const [sent, setSent] = useState(false);
-  if (sent) return <span className={common.sentLabel}>Sent ✓</span>;
+  const [state, setState] = useState<'idle' | 'pending' | 'sent'>('idle');
+
+  // chat.responseSeq only bumps on an actual reply to a request we sent
+  // (see useChat's 'error' case — every friend_request outcome, success or
+  // failure, comes back through it). Read the tone of whatever notice just
+  // landed instead of flipping to "Sent" optimistically on click, so a
+  // decline/already-pending/blocked error doesn't get reported as sent.
+  useEffect(() => {
+    if (state !== 'pending') return;
+    const last = chat.notices[chat.notices.length - 1];
+    if (last?.tone === 'success') {
+      setState('sent');
+      onSent?.();
+    } else {
+      setState('idle');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chat.responseSeq]);
+
+  if (state === 'sent') return <span className={common.sentLabel}>Sent ✓</span>;
   return (
     <button
       className={common.addButton}
+      disabled={state === 'pending'}
       onClick={() => {
         chat.sendFriendRequest(target);
-        setSent(true);
-        onSent?.();
+        setState('pending');
       }}
     >
-      + Add
+      {state === 'pending' ? 'Sending…' : '+ Add'}
     </button>
   );
 }
@@ -144,7 +173,18 @@ function RoomRow({
   onClick: () => void;
 }) {
   return (
-    <div className={active ? common.rowActive : common.row} onClick={onClick}>
+    <div
+      className={active ? common.rowActive : common.row}
+      onClick={onClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+    >
       <Avatar avatarId={avatarId} displayName={displayName} size={30} />
       <span className={common.rowName}>{displayName}</span>
       {unread > 0 && <span className={common.unreadBadge}>{unread}</span>}

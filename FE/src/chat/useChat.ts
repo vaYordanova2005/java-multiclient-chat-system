@@ -55,6 +55,11 @@ export interface DisplayMessage extends WireMessage {
 interface UseChatOptions {
   token: string;
   username: string;
+  // Seeds `theme` until the BE's own `theme_update` push overwrites it with
+  // the user's actual saved preference — passed in from useThemeCatalog's
+  // /api/themes response instead of duplicating ChatTheme.java's defaults
+  // as separate literals here.
+  defaultTheme: ThemePreferences;
   onUsernameChanged: (newUsername: string, newToken: string) => void;
   onAccountDeleted: () => void;
   // Fires only once ChatSocket has decoded the token's own exp and confirmed
@@ -66,7 +71,7 @@ interface UseChatOptions {
 
 export type ChatController = ReturnType<typeof useChat>;
 
-export function useChat({ token, username, onUsernameChanged, onAccountDeleted, onAuthFailed }: UseChatOptions) {
+export function useChat({ token, username, defaultTheme, onUsernameChanged, onAccountDeleted, onAuthFailed }: UseChatOptions) {
   const [connected, setConnected] = useState(false);
   const [currentRoom, setCurrentRoom] = useState(GLOBAL_ROOM);
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
@@ -78,11 +83,7 @@ export function useChat({ token, username, onUsernameChanged, onAccountDeleted, 
   const [peerAvatars, setPeerAvatars] = useState<Record<string, string>>({});
   const [unread, setUnread] = useState<Record<string, number>>({});
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [theme, setThemeState] = useState<ThemePreferences>({
-    bubbleThemeId: 'solid_periwinkle',
-    backgroundThemeId: 'bg_ombre_3',
-    uiThemeId: 'ui_lilac',
-  });
+  const [theme, setThemeState] = useState<ThemePreferences>(defaultTheme);
   const [profile, setProfile] = useState<ProfileInfo | null>(null);
   const [notices, setNotices] = useState<Notice[]>([]);
   // Bumped only by the two message types that are actually "a settings
@@ -279,6 +280,18 @@ export function useChat({ token, username, onUsernameChanged, onAccountDeleted, 
           if (msg.text && msg.token) {
             onUsernameChanged(msg.text, msg.token);
             pushNotice(`✅ Username changed to ${msg.text}`);
+            // `currentRoom`/`unread` keys embed the old username (e.g.
+            // `dm_<old>_<peer>`) and stop matching anything once it changes.
+            // The reconnect this triggers (new token -> new ChatSocket) lands
+            // BE back on "global" the same way any fresh connection does
+            // (ClientHandler.start()), so mirror that here instead of being
+            // left pointed at a room key nothing will ever answer to again.
+            currentRoomRef.current = GLOBAL_ROOM;
+            setCurrentRoom(GLOBAL_ROOM);
+            setMessages([]);
+            seenSignaturesRef.current.clear();
+            setDmPartners([]);
+            setUnread({});
           }
           setResponseSeq((n) => n + 1);
           return;
@@ -305,7 +318,11 @@ export function useChat({ token, username, onUsernameChanged, onAccountDeleted, 
         case 'dm': {
           if (absorbIfStale(msg)) return;
           resolvePendingRoomJoin(msg);
-          const otherUser = msg.user === self ? msg.receiver! : msg.user!;
+          const otherUser = msg.user === self ? msg.receiver : msg.user;
+          // An incomplete frame (missing either side of the conversation)
+          // can't be keyed into a room — drop it rather than assert past the
+          // gap and mint a `dm_undefined_x` entry that lingers in dmPartners.
+          if (!otherUser) return;
           addDmPartner(otherUser);
           const roomKey = dmRoomKey(self, otherUser);
           if (msg.room && msg.room === currentRoomRef.current) {

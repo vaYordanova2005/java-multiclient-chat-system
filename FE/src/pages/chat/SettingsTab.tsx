@@ -110,8 +110,11 @@ function PrivacySection({ chat }: { chat: ChatController }) {
     <>
       <div className={styles.sectionTitle}>PRIVACY</div>
       <div className={styles.toggleRow}>
-        <label style={{ color: 'var(--text-dark)', fontSize: 15 }}>Show Online Status</label>
+        <label htmlFor="show-online-status" style={{ color: 'var(--text-dark)', fontSize: 15 }}>
+          Show Online Status
+        </label>
         <input
+          id="show-online-status"
           type="checkbox"
           checked={chat.profile?.showOnlineStatus ?? true}
           onChange={(e) => chat.setOnlineVisibility(e.target.checked)}

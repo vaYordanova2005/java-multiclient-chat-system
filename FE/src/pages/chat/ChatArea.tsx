@@ -19,9 +19,31 @@ export default function ChatArea({
   const [input, setInput] = useState('');
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Whether the user was already at (near) the bottom before this batch of
+  // messages landed — read by the scroll-to-bottom effect below so it only
+  // follows new messages while the user hasn't scrolled up to read history.
+  const isNearBottomRef = useRef(true);
+
+  // A room switch always starts scrolled to its own bottom, regardless of
+  // where the previous room's scroll happened to be left.
+  useEffect(() => {
+    isNearBottomRef.current = true;
+  }, [chat.currentRoom]);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+    const el = scrollRef.current;
+    if (!el) return;
+    const handleScroll = () => {
+      isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+    };
+    el.addEventListener('scroll', handleScroll);
+    return () => el.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  useEffect(() => {
+    if (isNearBottomRef.current) {
+      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+    }
   }, [chat.messages]);
 
   const isDm = chat.currentRoom.startsWith('dm_');
@@ -56,7 +78,7 @@ export default function ChatArea({
         {!chat.connected && <div className={styles.disconnectedBanner}>⚠️ Disconnected — reconnecting…</div>}
 
         {chat.notices.length > 0 && (
-          <div className={styles.notices}>
+          <div className={styles.notices} role="status" aria-live="polite">
             {chat.notices.map((n) => (
               <div
                 key={n.id}
@@ -88,7 +110,9 @@ export default function ChatArea({
             placeholder={chat.connected ? 'Type a message...' : 'Disconnected...'}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && submit()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) submit();
+            }}
             disabled={!chat.connected}
           />
           <button className={styles.sendButton} onClick={submit} disabled={!chat.connected}>

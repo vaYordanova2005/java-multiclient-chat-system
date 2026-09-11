@@ -13,7 +13,7 @@ export type BottomTab = 'chats' | 'friends' | 'settings';
 
 export default function ChatPage() {
   const { session, login: setAuthSession, logout } = useAuth();
-  const { catalog } = useThemeCatalog();
+  const { catalog, loading: catalogLoading } = useThemeCatalog();
   const [bottomTab, setBottomTab] = useState<BottomTab>('chats');
 
   // Redirecting to /login is RequireAuth's job, triggered by `session`
@@ -22,10 +22,20 @@ export default function ChatPage() {
   const chat = useChat({
     token: session!.token,
     username: session!.username,
+    defaultTheme: catalog.defaults,
     onUsernameChanged: (newUsername, newToken) => setAuthSession({ token: newToken, username: newUsername }),
     onAccountDeleted: () => logout(),
     onAuthFailed: () => logout({ text: '❌ Session expired — please log in again.', variant: 'error' }),
   });
+
+  // Catalog (and its `defaults`, which seed `chat.theme` above) starts out
+  // as FALLBACK and flips to the real /api/themes response moments later —
+  // rendering through that flip means a real user briefly sees the fallback
+  // accent before it jumps to their actual theme. Hold the first paint until
+  // it resolves instead.
+  if (catalogLoading) {
+    return <div className={styles.loading}>Loading…</div>;
+  }
 
   const uiTheme = catalog.uiThemes.find((t) => t.id === chat.theme.uiThemeId);
   const colors = deriveUiThemeColors(uiTheme?.accent ?? '#A7ABDE');

@@ -2,11 +2,14 @@ import { useEffect, useState } from 'react';
 import { apiBase } from '../api/client';
 import type { ThemeCatalog } from './catalog';
 
+// Only used until GET /api/themes resolves (or if it never does) — kept in
+// sync with ChatTheme.java's DEFAULT_*_THEME_ID constants by hand, since
+// there's nothing to fetch yet at this point.
 const FALLBACK: ThemeCatalog = {
   bubbleThemes: [],
   backgroundThemes: [],
   uiThemes: [],
-  defaults: { bubbleThemeId: 'solid_periwinkle', backgroundThemeId: 'bg_ombre_3', uiThemeId: 'ui_lilac' },
+  defaults: { bubbleThemeId: 'solid_electric_blue', backgroundThemeId: 'bg_solid_sky', uiThemeId: 'ui_vivid_electric_blue' },
 };
 
 // Fetches the bubble/background/UI theme catalogs from GET /api/themes once

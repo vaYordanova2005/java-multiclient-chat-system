@@ -38,7 +38,19 @@ export default function FriendsTab({ chat, onOpenFriend }: { chat: ChatControlle
           {sortedFriends.map((friend) => {
             const online = chat.onlineUsers.includes(friend.username);
             return (
-              <div key={friend.username} className={common.row} onClick={() => onOpenFriend(friend.username)}>
+              <div
+                key={friend.username}
+                className={common.row}
+                onClick={() => onOpenFriend(friend.username)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onOpenFriend(friend.username);
+                  }
+                }}
+              >
                 <Avatar avatarId={chat.peerAvatars[friend.username]} displayName={friend.username} size={30} fallbackColor="#00b894" />
                 <span className={common.rowNameNormal}>{friend.username}</span>
                 <span className={online ? common.presenceDotOnline : common.presenceDotOffline} />
