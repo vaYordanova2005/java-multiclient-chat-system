@@ -24,12 +24,12 @@ public class BlockedUserDAO {
         return dataSource.getConnection();
     }
 
-    // Блокира потребител (еднопосочно — blocker не вижда blocked)
+    // Blocks a user (one-directional — blocker doesn't see blocked)
     public boolean blockUser(String blocker, String blocked) {
         if (blocker.equals(blocked)) return false;
 
-        // Постгрес няма "INSERT IGNORE" (MySQL-only) — еквивалентът е
-        // ON CONFLICT DO NOTHING на уникалния (blocker, blocked) чифт.
+        // Postgres has no "INSERT IGNORE" (MySQL-only) — the equivalent is
+        // ON CONFLICT DO NOTHING on the unique (blocker, blocked) pair.
         String sql = "INSERT INTO blocked_users (blocker, blocked) VALUES (?, ?) ON CONFLICT (blocker, blocked) DO NOTHING";
 
         try (Connection conn = getConnection();
@@ -46,7 +46,7 @@ public class BlockedUserDAO {
         }
     }
 
-    // Разблокира потребител
+    // Unblocks a user
     public boolean unblockUser(String blocker, String blocked) {
         String sql = "DELETE FROM blocked_users WHERE blocker = ? AND blocked = ?";
 
@@ -64,7 +64,7 @@ public class BlockedUserDAO {
         }
     }
 
-    // Дали А е блокирал B (еднопосочна проверка)
+    // Whether A has blocked B (one-directional check)
     public boolean isBlocked(String blocker, String blocked) {
         String sql = "SELECT 1 FROM blocked_users WHERE blocker = ? AND blocked = ?";
 
@@ -81,8 +81,8 @@ public class BlockedUserDAO {
         }
     }
 
-    // Двупосочна проверка — true ако А е блокирал B ИЛИ B е блокирал А.
-    // Полезно за решения от типа "трябва ли да доставя това DM съобщение".
+    // Two-directional check — true if A has blocked B OR B has blocked A.
+    // Useful for decisions like "should I deliver this DM message".
     public boolean isBlockedEitherWay(String userA, String userB) {
         String sql = """
             SELECT 1 FROM blocked_users
@@ -104,7 +104,7 @@ public class BlockedUserDAO {
         }
     }
 
-    // Списък потребители, които ТОЗИ потребител е блокирал
+    // List of users THIS user has blocked
     public List<String> getBlockedList(String blocker) {
         String sql = "SELECT blocked FROM blocked_users WHERE blocker = ? ORDER BY blocked ASC";
 

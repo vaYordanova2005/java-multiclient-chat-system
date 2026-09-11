@@ -8,21 +8,21 @@ import org.springframework.web.socket.server.HandshakeInterceptor;
 
 import java.util.Map;
 
-// Резолвира клиентския IP по X-Forwarded-For, но САМО когато приложението е
-// изрично конфигурирано да е зад доверен reverse proxy (TRUST_PROXY_HEADERS=true,
-// напр. на Render). X-Forwarded-For е обикновен HTTP хедър — всеки клиент може
-// да го прати сам, така че сляпото му доверяване прави MAX_CONNECTIONS_PER_IP
-// и login lockout-а декоративни (произволен XFF на всеки опит = различен "IP"
-// всеки път). Затова:
-//   - по подразбиране (без TRUST_PROXY_HEADERS=true) хедърът се игнорира изцяло
-//     и се ползва реалният TCP peer адрес — вярно за локална разработка и за
-//     всеки deployment без proxy пред нас;
-//   - когато е включено (защото знаем, че деплойваме зад точно един proxy hop —
-//     Render), взимаме ПОСЛЕДНИЯ адрес във веригата, не първия. Всеки proxy hop
-//     ДОБАВЯ (append) видения от него адрес towards края на списъка — първият
-//     елемент е каквото клиентът сам е написал в хедъра (напълно недоверено),
-//     докато последният е това, което нашият директен (единствен, доверен)
-//     proxy е видял като свой клиент.
+// Resolves the client IP via X-Forwarded-For, but ONLY when the app is
+// explicitly configured to be behind a trusted reverse proxy (TRUST_PROXY_HEADERS=true,
+// e.g. on Render). X-Forwarded-For is a plain HTTP header — any client can
+// send it themselves, so blindly trusting it makes MAX_CONNECTIONS_PER_IP
+// and the login lockout decorative (a random XFF per attempt = a different "IP"
+// every time). Hence:
+//   - by default (without TRUST_PROXY_HEADERS=true) the header is ignored entirely
+//     and the real TCP peer address is used — correct for local dev and for
+//     any deployment without a proxy in front of us;
+//   - when enabled (because we know we're deployed behind exactly one proxy hop —
+//     Render), we take the LAST address in the chain, not the first. Every proxy hop
+//     APPENDS the address it saw towards the end of the list — the first
+//     element is whatever the client itself wrote in the header (completely
+//     untrusted), while the last one is what our direct (single, trusted)
+//     proxy saw as its client.
 public class ClientIpHandshakeInterceptor implements HandshakeInterceptor {
 
     public static final String CLIENT_IP_ATTRIBUTE = "clientIp";

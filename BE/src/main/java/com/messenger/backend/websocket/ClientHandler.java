@@ -27,14 +27,14 @@ public class ClientHandler {
 
     private final WebSocketSession session;
     private final String clientIp;
-    // volatile — четени от ЧУЖДИ нишки без synchronized(lock): broadcastToRoom
-    // чете ch.currentRoom за всеки клиент в snapshot-а, а onlineUsers мапата
-    // излага username на broadcaster нишки, различни от тая, която го пише
-    // (rename). Без volatile, промяна на currentRoom при смяна на стая може
-    // да не се вижда веднага от друга нишка — съобщение отива в старата стая
-    // или се губи.
+    // volatile — read by OTHER threads without synchronized(lock): broadcastToRoom
+    // reads ch.currentRoom for every client in the snapshot, and the onlineUsers map
+    // exposes username to broadcaster threads other than the one that writes it
+    // (rename). Without volatile, a currentRoom change on room switch might
+    // not be visible right away to another thread — a message goes to the
+    // old room or gets lost.
     private volatile String username;
-    private volatile boolean kicked = false;      // true само при force-disconnect от duplicate login
+    private volatile boolean kicked = false;      // true only on force-disconnect from a duplicate login
     private volatile boolean alreadyClosed = false;
 
     private volatile String currentRoom = "global";
@@ -49,7 +49,7 @@ public class ClientHandler {
     private final TokenService tokenService;
 
     private String myColor;
-    private String myAvatarId; // кеширан avatar на тази сесия — обновява се и при set_avatar
+    private String myAvatarId; // cached avatar for this session — also updated on set_avatar
 
     // RATE LIMITING
     private static final int RATE_LIMIT_MAX_MESSAGES = 8;
@@ -65,14 +65,14 @@ public class ClientHandler {
 
     private final Runnable onDisconnectCallback;
 
-    // clientIp се подава готов от ChatWebSocketHandler (виж класа за защо —
-    // WebSocketSession.getRemoteAddress() зад reverse proxy връща IP-то на
-    // прокси-то, не на клиента, затова резолвирането става там чрез
-    // X-Forwarded-For, не тук). username идва вече проверен от
-    // TokenAuthHandshakeInterceptor — auth минава изцяло през REST
-    // (AuthController) преди сокетът дори да се отвори, затова тук вече няма
-    // pre-auth фаза: всяка ClientHandler инстанция е автентикирана от самото
-    // си създаване.
+    // clientIp is passed in already resolved by ChatWebSocketHandler (see that
+    // class for why — WebSocketSession.getRemoteAddress() behind a reverse proxy
+    // returns the proxy's IP, not the client's, so resolution happens there via
+    // X-Forwarded-For, not here). username arrives already verified by
+    // TokenAuthHandshakeInterceptor — auth goes entirely through REST
+    // (AuthController) before the socket even opens, so there is no
+    // pre-auth phase here anymore: every ClientHandler instance is
+    // authenticated from the moment it's created.
     public ClientHandler(WebSocketSession session, String clientIp, String username,
                           Runnable onDisconnectCallback,
                           MessageDAO messageDAO, UserDAO userDAO,
@@ -91,26 +91,26 @@ public class ClientHandler {
     }
 
     // ════════════════════════════════════════════════════════════
-    // ENTRY POINT — извиква се от ChatWebSocketHandler.handleTextMessage()
-    // за ВСЯКО пристигнало съобщение (не блокиращ readLine() loop както
-    // преди — Spring/Tomcat сами управляват I/O нишките).
+    // ENTRY POINT — called from ChatWebSocketHandler.handleTextMessage()
+    // for EVERY incoming message (not a blocking readLine() loop like
+    // before — Spring/Tomcat manage the I/O threads themselves now).
     // ════════════════════════════════════════════════════════════
     public void handleIncoming(String rawMessage) {
         if (rawMessage == null) return;
         handleChatMessage(rawMessage);
     }
 
-    // Извиква се от ChatWebSocketHandler.afterConnectionClosed() — тук се
-    // случва цялото disconnect bookkeeping (преди беше в run()/runMessageLoop()'s finally).
+    // Called from ChatWebSocketHandler.afterConnectionClosed() — all the
+    // disconnect bookkeeping happens here (used to be in run()/runMessageLoop()'s finally).
     public void onSocketClosed() {
         if (alreadyClosed) return;
         alreadyClosed = true;
 
         removeClientHandler();
 
-        // "has left the chat" само за естествен disconnect — НЕ и когато е
-        // kick-нат заради duplicate login (старата логика също не пращаше
-        // leave съобщение в тоя случай).
+        // "has left the chat" only for a natural disconnect — NOT when
+        // kicked for a duplicate login (the old logic didn't send a
+        // leave message in that case either).
         if (!kicked) {
             log.info("Client disconnected: {}", username);
         }
@@ -119,13 +119,13 @@ public class ClientHandler {
     }
 
     // ════════════════════════════════════════════════════════════
-    // START — извиква се от ChatWebSocketHandler веднага след конструиране,
-    // щом handshake-ът е минал (виж TokenAuthHandshakeInterceptor). Преди
-    // login/register/reset минаваха по самия socket ("AUTH_LOGIN|user|pass"
-    // и т.н., виж README/git история) — сега целият auth е REST
-    // (AuthController), а connection-ът винаги е за вече автентикиран
-    // потребител, затова тук няма нищо повече от "регистрирай ме като online
-    // и ми пусни началния snapshot".
+    // START — called from ChatWebSocketHandler right after construction,
+    // once the handshake has passed (see TokenAuthHandshakeInterceptor). Login/
+    // register/reset used to go over the socket itself ("AUTH_LOGIN|user|pass"
+    // etc., see README/git history) — now auth is entirely REST
+    // (AuthController), and the connection is always for an already
+    // authenticated user, so there's nothing more here than "register me as
+    // online and send me the initial snapshot".
     // ════════════════════════════════════════════════════════════
     public void start() {
         this.myColor = userDAO.ensureUserColor(this.username);
@@ -152,8 +152,8 @@ public class ClientHandler {
         pushGroupConversations(this);
     }
 
-    // ISO-8601 (UTC), не "HH:mm" — виж MessageDAO/schema.sql за същата смяна
-    // на историческите съобщения. Тук е за live-генерираните (join/leave/error/...).
+    // ISO-8601 (UTC), not "HH:mm" — see MessageDAO/schema.sql for the same change
+    // on historical messages. This is for the live-generated ones (join/leave/error/...).
     private String getTime() {
         return Instant.now().toString();
     }
@@ -214,8 +214,8 @@ public class ClientHandler {
         sendToClient(target, gson.toJson(msg));
     }
 
-    // Изпраща DM списъка + avatarId за всеки партньор директно от userDAO
-    // (не само за online потребители, за разлика от avatar_directory push).
+    // Sends the DM list + avatarId for every partner straight from userDAO
+    // (not just online users, unlike the avatar_directory push).
     private void pushDmConversations(ClientHandler target) {
         List<String> partners = messageDAO.getDMConversationPartners(target.username);
 
@@ -251,10 +251,10 @@ public class ClientHandler {
     // GROUP CONVERSATIONS PUSH
     // =============================================
 
-    // Пълен, авторитетен списък с групите на target-а — не диф, същото
-    // поведение като friend_list/blocked_list по-горе. Плосък GroupSummary[]
-    // директно в text, за разлика от DmConversationsPayload — тук няма
-    // втори списък (avatars) за пренасяне отделно.
+    // Full, authoritative list of target's groups — not a diff, same
+    // behavior as friend_list/blocked_list above. A flat GroupSummary[]
+    // directly in text, unlike DmConversationsPayload — there's no
+    // second list (avatars) to carry separately here.
     private void pushGroupConversations(ClientHandler target) {
         List<ConversationDAO.GroupSummary> groups = conversationDAO.getUserGroups(target.username);
 
@@ -268,10 +268,10 @@ public class ClientHandler {
         sendToClient(target, gson.toJson(msg));
     }
 
-    // Взима вече готов members списък, вместо сам да го заявява — вика се и от
-    // leave_group с членове, взети ПРЕДИ delete-а (иначе напусналият вече не
-    // е в списъка и собственият му изглед никога не се опреснява), и от
-    // create/add/rename с членове, взети СЛЕД промяната.
+    // Takes an already-ready members list instead of querying it itself — also
+    // called from leave_group with members taken BEFORE the delete (otherwise
+    // the leaver is no longer in the list and their own view never refreshes),
+    // and from create/add/rename with members taken AFTER the change.
     private void pushGroupConversationsToOnlineMembers(List<String> members) {
         synchronized (lock) {
             for (String member : members) {
@@ -308,7 +308,7 @@ public class ClientHandler {
     }
 
     // ════════════════════════════════════════════════════════════
-    // TRANSPORT — единственото място, което пипа WebSocket директно.
+    // TRANSPORT — the only place that touches the WebSocket directly.
     // ════════════════════════════════════════════════════════════
     private void sendRaw(String text) {
         try {
@@ -316,9 +316,9 @@ public class ClientHandler {
                 session.sendMessage(new TextMessage(text));
             }
         } catch (Exception e) {
-            // Връзката е мъртва или буферът е препълнен (ConcurrentWebSocketSessionDecorator
-            // хвърля при overflow) — afterConnectionClosed ще се погрижи за cleanup, но
-            // логваме, за да не изчезва съобщение без следа.
+            // The connection is dead or the buffer overflowed (ConcurrentWebSocketSessionDecorator
+            // throws on overflow) — afterConnectionClosed will handle cleanup, but
+            // we log it so a message doesn't just vanish without a trace.
             log.warn("Failed to send message to {}: {}", username, e.toString());
         }
     }
@@ -334,6 +334,12 @@ public class ClientHandler {
     // =============================================
     // HISTORY
     // =============================================
+    // For groups: pulls the whole room history with no filter on join moment — a
+    // new member sees messages from BEFORE they were added (Telegram-style
+    // full-history-visible-on-join, not Signal/Slack-style join-forward-only).
+    // A deliberate decision, not an oversight: conversation_members.joined_at
+    // exists in the schema precisely so this can later be turned into
+    // `WHERE m.timestamp >= cm.joined_at` if the decision changes.
     private void loadRoomHistory(String room) {
         List<Message> history;
 
@@ -375,8 +381,8 @@ public class ClientHandler {
             allUsernames = new ArrayList<>(onlineUsers.keySet());
         }
 
-        // ЕДНА заявка за show_online_status + avatar_id на ВСИЧКИ online
-        // потребители, вместо 2 отделни заявки на всеки от тях в цикъл.
+        // ONE query for show_online_status + avatar_id for ALL online
+        // users, instead of 2 separate queries per user in a loop.
         Map<String, UserDAO.OnlineProfile> profiles = userDAO.getOnlineProfiles(allUsernames);
 
         if (profiles.size() < allUsernames.size()) {
@@ -385,11 +391,11 @@ public class ClientHandler {
                     profiles.size(), allUsernames.size());
         }
 
-        // Privacy: филтрираме потребители, които са изключили "Show Online Status".
-        // Fail-open за липсващ профил (DB грешка в batch заявката по-горе,
-        // или race с disconnect) — старият getShowOnlineStatus() връщаше true
-        // при SQL грешка по същата причина: fail-closed тук е неразличимо от
-        // "наистина никой не е на линия" вместо да изглежда като грешка.
+        // Privacy: filter out users who turned off "Show Online Status".
+        // Fail-open for a missing profile (DB error in the batch query above,
+        // or a race with disconnect) — the old getShowOnlineStatus() returned true
+        // on a SQL error for the same reason: fail-closed here would be
+        // indistinguishable from "truly nobody is online" instead of looking like an error.
         List<String> visibleUsers = new ArrayList<>();
         Map<String, String> avatarDirectory = new HashMap<>();
         for (String u : allUsernames) {
@@ -413,8 +419,8 @@ public class ClientHandler {
 
         String json = gson.toJson(msg);
 
-        // Avatar directory — паралелна на online_users информация, за да
-        // клиентите могат да рендират правилния avatar до всеки online контакт.
+        // Avatar directory — parallel to the online_users info, so
+        // clients can render the right avatar next to every online contact.
         Message avatarMsg = new Message();
         avatarMsg.type = "avatar_directory";
         avatarMsg.text = gson.toJson(avatarDirectory);
@@ -436,12 +442,12 @@ public class ClientHandler {
     // VALIDATION & RATE LIMIT
     // =============================================
 
-    // Формат: "bubbleThemeId|backgroundThemeId|uiThemeId" (последните две са
-    // опционални — при липса се ползва default-ът). Всяко подадено ID трябва
-    // да съществува в ChatTheme каталога — иначе произволен стринг се записва
-    // директно в users.bubble_theme/background_theme/ui_theme (VARCHAR(30)
-    // без ограничение на съдържанието), а после клиентът не намира тема за
-    // тоя ID и не знае какво да рендира.
+    // Format: "bubbleThemeId|backgroundThemeId|uiThemeId" (the last two are
+    // optional — the default is used if missing). Every submitted ID must
+    // exist in the ChatTheme catalog — otherwise an arbitrary string gets
+    // written straight into users.bubble_theme/background_theme/ui_theme
+    // (VARCHAR(30), no content restriction), and then the client can't find
+    // a theme for that ID and doesn't know what to render.
     private boolean isValidThemeSelection(String text) {
         if (text == null) return false;
         String[] parts = text.split("\\|", 3);
@@ -467,13 +473,14 @@ public class ClientHandler {
         sendHistoryToClient(gson.toJson(err));
     }
 
-    // Отделен тип от "error" нарочно — виж plan за пълния разбор. Кратко:
-    // "error" вече се консумира от pendingFriendRequestsRef на FE-то
-    // (ordering-based correlation), а room_join за празна нова група никога
-    // не получава отговор, който да resolve-не pendingRoomJoinRef — така
-    // "join в процес" не е надежден сигнал за "тая грешка е за тоя join".
-    // room в самия frame прави корелацията еднозначна: FE проверява
-    // msg.room === currentRoom, без гадаене по ред.
+    // A separate type from "error" on purpose — see plan for the full
+    // breakdown. Short version: "error" is already consumed by the FE's
+    // pendingFriendRequestsRef (ordering-based correlation), and room_join
+    // for an empty new group never gets a response that would resolve
+    // pendingRoomJoinRef — so "join in progress" isn't a reliable signal
+    // for "this error is for this join". Having room in the frame itself
+    // makes the correlation unambiguous: FE checks msg.room === currentRoom,
+    // no guessing by order.
     private void sendJoinDenied(String room, String text) {
         Message denied = new Message("join_denied", "SERVER", "#e74c3c", text);
         denied.room = room;
@@ -531,9 +538,9 @@ public class ClientHandler {
                 return msg.text != null && !msg.text.isEmpty();
 
             case "create_group":
-                // Дълбоката валидация (parse, member limit, приятелство) е в
-                // handleChatMessage — тук само таван на суровия текст, преди
-                // Gson изобщо да го пипне.
+                // The deep validation (parse, member limit, friendship) lives in
+                // handleChatMessage — this is just a cap on the raw text before
+                // Gson even touches it.
                 return msg.text != null && !msg.text.isEmpty() && msg.text.length() <= MAX_MESSAGE_LENGTH;
 
             case "add_group_member":
@@ -552,17 +559,20 @@ public class ClientHandler {
         }
     }
 
-    // Връща null за всичко, което не изглежда като валиден group room —
-    // липсва "group_" префикс, нечислов суфикс, или id <= 0 ("group_0",
-    // "group_-5" парсват като числа, но никога не са реален id, тъй като
-    // SERIAL стартира от 1). isMember и без това би отхвърлил такъв id
-    // (няма съвпадащ ред), но връщането на null тук по-рано дава по-точно
-    // съобщение за грешка ("no such group" вместо подвеждащо "not a member").
+    // Strict digits-only, mirroring the FE's GROUP_ID_PATTERN (types.ts) —
+    // Integer.parseInt by itself accepts "007" (leading zeros) and "+1"
+    // (explicit sign), which the FE rejects. Without this symmetry, "valid
+    // room" is defined differently on the two sides (not exploitable — the
+    // id still goes through isMember — but the mismatch lets the two
+    // parsers quietly drift apart).
+    private static final java.util.regex.Pattern GROUP_ID_PATTERN = java.util.regex.Pattern.compile("^[1-9]\\d*$");
+
     private Integer parseGroupId(String room) {
         if (room == null || !room.startsWith("group_")) return null;
+        String raw = room.substring("group_".length());
+        if (!GROUP_ID_PATTERN.matcher(raw).matches()) return null;
         try {
-            int id = Integer.parseInt(room.substring("group_".length()));
-            return id > 0 ? id : null;
+            return Integer.parseInt(raw);
         } catch (NumberFormatException e) {
             return null;
         }
@@ -666,7 +676,7 @@ public class ClientHandler {
         }
     }
 
-    // Записва избора на тема в базата. Формат: "bubbleThemeId|backgroundThemeId|uiThemeId"
+    // Persists the theme choice in the DB. Format: "bubbleThemeId|backgroundThemeId|uiThemeId"
     private void handleSetTheme(Message msg) {
         String[] parts = msg.text.split("\\|", 3);
         String bubbleThemeId = parts[0];
@@ -698,12 +708,12 @@ public class ClientHandler {
                     onlineUsers.put(newUsername, this);
                 }
 
-                // Стар токен носи oldUsername — UserDAO.userExists(oldUsername)
-                // ще го отхвърли на следващ connect (виж ChatWebSocketHandler),
-                // затова тук веднага издаваме нов, за новото име, и го пращаме
-                // на клиента да го замести в паметта си. Без тоя ред,
-                // преименувалият се потребител се отписва трайно на следващия
-                // reconnect с обяснение, което не сочи към причината.
+                // The old token carries oldUsername — UserDAO.userExists(oldUsername)
+                // will reject it on the next connect (see ChatWebSocketHandler),
+                // so we immediately issue a new one, for the new name, and send it
+                // to the client to replace it in memory. Without this line,
+                // a renamed user gets permanently logged out on the next
+                // reconnect with an explanation that doesn't point to the cause.
                 Message confirm = new Message("username_changed", "SERVER", "#b2bec3", newUsername);
                 confirm.timestamp = getTime();
                 confirm.token = tokenService.issue(newUsername);
@@ -781,8 +791,8 @@ public class ClientHandler {
     }
 
     // ════════════════════════════════════════════════════════════
-    // CHAT MESSAGE HANDLING — извиква се за всяко съобщение СЛЕД auth
-    // (преди беше тялото на runMessageLoop()'s while(readLine()) loop).
+    // CHAT MESSAGE HANDLING — called for every message AFTER auth
+    // (used to be the body of runMessageLoop()'s while(readLine()) loop).
     // ════════════════════════════════════════════════════════════
     private void handleChatMessage(String json) {
         if (!checkRateLimit()) {
@@ -837,17 +847,17 @@ public class ClientHandler {
                     out.avatarId = myAvatarId;
                     messageDAO.saveMessage(out);
 
-                    // Директен fan-out към всеки online член — НЕ broadcastToRoom,
-                    // което стига само до клиенти, чийто currentRoom СЕГА съвпада
-                    // (виж plan: точно това чупи unread badge-овете за членове,
-                    // гледащи друга стая в момента на изпращане).
+                    // Direct fan-out to every online member — NOT broadcastToRoom,
+                    // which only reaches clients whose currentRoom matches RIGHT NOW
+                    // (see plan: this is exactly what breaks unread badges for members
+                    // looking at a different room at the moment of sending).
                     String jsonOut = gson.toJson(out);
                     List<String> members = conversationDAO.getMembers(gid);
                     synchronized (lock) {
                         for (String member : members) {
-                            // Block филтрира само LIVE доставката тук, не историята
-                            // (loadRoomHistory не филтрира по block) — известен gap,
-                            // виж plan.
+                            // Block only filters the LIVE delivery here, not the history
+                            // (loadRoomHistory doesn't filter by block) — known gap,
+                            // see plan.
                             if (blockedUserDAO.isBlockedEitherWay(username, member)) continue;
                             ClientHandler h = onlineUsers.get(member);
                             if (h != null) h.sendRaw(jsonOut);
@@ -914,9 +924,9 @@ public class ClientHandler {
     // GROUP MESSAGE HANDLERS
     // =============================================
 
-    // members идва от FE-то като JSON, опаковано в msg.text — същата
-    // техника като dm_conversations/friend_list в обратна посока (виж plan),
-    // затова Message.java не се пипа заради едно ново поле.
+    // members comes from the FE as JSON, wrapped in msg.text — the same
+    // technique as dm_conversations/friend_list in reverse (see plan),
+    // so Message.java doesn't need touching for one new field.
     private static class CreateGroupRequest {
         String name;
         List<String> members;
@@ -941,9 +951,9 @@ public class ClientHandler {
             return;
         }
 
-        // Self-strip ПРЕДИ приятелство проверката — friendshipDAO.areFriends(u, u)
-        // никога не е true (няма self-friendship ред), а сървърът и без това
-        // винаги добавя създателя отделно в ConversationDAO.createGroup.
+        // Self-strip BEFORE the friendship check — friendshipDAO.areFriends(u, u)
+        // is never true (there's no self-friendship row), and the server
+        // always adds the creator separately in ConversationDAO.createGroup anyway.
         Set<String> members = new LinkedHashSet<>(req.members != null ? req.members : List.of());
         members.remove(username);
 
@@ -981,6 +991,8 @@ public class ClientHandler {
             sendErrorToClient("❌ You can only add friends to a group.");
         } else if (conversationDAO.isMember(gid, target)) {
             sendErrorToClient("❌ " + target + " is already in this group.");
+        } else if (conversationDAO.getMembers(gid).size() >= MAX_GROUP_MEMBERS) {
+            sendErrorToClient("❌ Group is full — max " + MAX_GROUP_MEMBERS + " members.");
         } else {
             conversationDAO.addMember(gid, target);
             pushGroupConversationsToOnlineMembers(conversationDAO.getMembers(gid));
@@ -1005,8 +1017,8 @@ public class ClientHandler {
         Integer gid = parseGroupId(msg.room);
         if (gid == null || !conversationDAO.isMember(gid, username)) return;
 
-        // Members ПРЕДИ leaveGroup — след delete-а напусналият вече не е в
-        // списъка и собственият му изглед никога не би се опреснил (виж plan).
+        // Members BEFORE leaveGroup — after the delete, the leaver is no longer
+        // in the list and their own view would never refresh (see plan).
         List<String> membersBeforeLeave = conversationDAO.getMembers(gid);
         conversationDAO.leaveGroup(gid, username);
         pushGroupConversationsToOnlineMembers(membersBeforeLeave);
@@ -1025,7 +1037,7 @@ public class ClientHandler {
         broadcastOnlineUsers();
     }
 
-    // Ползва се при duplicate login — принудително разкача СТАРАТА сесия.
+    // Used on duplicate login — forcibly disconnects the OLD session.
     private void forceDisconnect() {
         kicked = true;
         synchronized (lock) {

@@ -38,14 +38,14 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
-// Единственият тест в проекта, който минава през ЦЕЛИЯ стек по реалния
-// transport: REST register/login (StandardWebSocketClient's HTTP-и не влизат
-// в тая част, ползваме TestRestTemplate за AuthController) -> token ->
-// StandardWebSocketClient -> вграден Tomcat -> TokenAuthHandshakeInterceptor
+// The only test in the project that goes through the ENTIRE stack over the real
+// transport: REST register/login (StandardWebSocketClient's HTTP calls don't play
+// a part here, we use TestRestTemplate for AuthController) -> token ->
+// StandardWebSocketClient -> embedded Tomcat -> TokenAuthHandshakeInterceptor
 // -> ChatWebSocketHandler -> ClientHandler -> DAOs -> Testcontainers Postgres.
-// Auth вече е изцяло REST (виж README "REST auth, WebSocket само за
-// чат/съобщения") — сокетът не приема повече "AUTH_LOGIN|..." pre-auth
-// команди, само Sec-WebSocket-Protocol header-а (token-а) на handshake-а.
+// Auth is now entirely REST (see README "REST auth, WebSocket only for
+// chat/messages") — the socket no longer accepts "AUTH_LOGIN|..." pre-auth
+// commands, only the Sec-WebSocket-Protocol header (the token) at handshake time.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Testcontainers
 class WebSocketProtocolIT {
@@ -58,16 +58,16 @@ class WebSocketProtocolIT {
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
-        // TokenService изисква тоя property (виж BackendApplication.main()'s
-        // AUTH_TOKEN_SECRET проверка) — фиксирана тестова стойност, замества
-        // application.yml's "${AUTH_TOKEN_SECRET:}" placeholder изцяло, без
-        // нужда от реална env variable по време на тестове.
+        // TokenService requires this property (see BackendApplication.main()'s
+        // AUTH_TOKEN_SECRET check) — a fixed test value, fully replacing
+        // application.yml's "${AUTH_TOKEN_SECRET:}" placeholder, with no
+        // need for a real env variable during tests.
         registry.add("app.security.auth-token-secret", () -> "test-secret-do-not-use-in-production");
     }
 
-    // Прилагаме schema.sql директно с JDBC, ПРЕДИ Spring контекста да
-    // тръгне — spring.sql.init.mode е "embedded" (виж README), т.е. Spring
-    // Boot няма да го приложи сам срещу тоя реален (Testcontainers) datasource.
+    // Apply schema.sql directly via JDBC, BEFORE the Spring context
+    // starts — spring.sql.init.mode is "embedded" (see README), i.e. Spring
+    // Boot won't apply it itself against this real (Testcontainers) datasource.
     @BeforeAll
     static void applySchema() throws Exception {
         String schemaSql;
@@ -126,10 +126,10 @@ class WebSocketProtocolIT {
             outgoing.room = "global";
             session.sendMessage(new TextMessage(gson.toJson(outgoing)));
 
-            // Connect-ът вече е пуснал история/friend_list/pending_requests/
-            // theme_update/blocked_list/profile_info/dm_conversations, join
-            // system съобщение, и online_users/avatar_directory по сокета —
-            // прескачаме ги, докато не видим ехото на нашето собствено "message".
+            // The connect has already sent history/friend_list/pending_requests/
+            // theme_update/blocked_list/profile_info/dm_conversations, a join
+            // system message, and online_users/avatar_directory over the socket —
+            // skip them until we see the echo of our own "message".
             Message echoed = null;
             for (int i = 0; i < 25 && echoed == null; i++) {
                 Message parsed = gson.fromJson(handler.next(), Message.class);
@@ -141,8 +141,8 @@ class WebSocketProtocolIT {
             assertNotNull(echoed, "never received the broadcast echo of our own chat message");
             assertEquals("hello from integration test", echoed.text);
             assertNotNull(echoed.timestamp);
-            // ISO-8601 UTC ("...Z") — виж README "Breaking changes vs legacy client"
-            // и ClientHandler.getTime()/MessageDAO.
+            // ISO-8601 UTC ("...Z") — see README "Breaking changes vs legacy client"
+            // and ClientHandler.getTime()/MessageDAO.
             assertTrue(echoed.timestamp.endsWith("Z"), "timestamp not UTC/Z: " + echoed.timestamp);
         } finally {
             session.close();
@@ -166,9 +166,9 @@ class WebSocketProtocolIT {
         String token = loginResponse.getBody().token();
         assertNotNull(token);
 
-        // Симулира delete_account, без да минаваме през WS протокола за него —
-        // директно DELETE на реда, който UserDAO.userExists ще потърси при
-        // следващ connect опит с тоя (все още криптографски валиден) token.
+        // Simulates delete_account without going through the WS protocol for it —
+        // a direct DELETE of the row that UserDAO.userExists will look for on the
+        // next connect attempt with this (still cryptographically valid) token.
         try (Connection conn = DriverManager.getConnection(
                 POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
              Statement stmt = conn.createStatement()) {
@@ -178,10 +178,10 @@ class WebSocketProtocolIT {
         RecordingHandler handler = new RecordingHandler();
         StandardWebSocketClient client = new StandardWebSocketClient();
 
-        // Handshake-ът минава (token-ът е валиден подпис + не е изтекъл) —
-        // ChatWebSocketHandler.afterConnectionEstablished е тоя, който отхвърля
-        // връзката СЛЕД upgrade, чрез userDAO.userExists(). Затова тук чакаме
-        // затварянето на сесията, не провал на самото свързване.
+        // The handshake succeeds (the token's signature is valid + not expired) —
+        // ChatWebSocketHandler.afterConnectionEstablished is what rejects the
+        // connection AFTER the upgrade, via userDAO.userExists(). So here we wait for
+        // the session to close, not for the connect itself to fail.
         WebSocketSession session = client.execute(handler, headersWithToken(token),
                 URI.create("ws://localhost:" + port + "/ws")).get(10, TimeUnit.SECONDS);
 
@@ -204,13 +204,13 @@ class WebSocketProtocolIT {
                     URI.create("ws://localhost:" + port + "/ws")).get(10, TimeUnit.SECONDS);
             fail("handshake should have been rejected without a valid token");
         } catch (Exception expected) {
-            // TokenAuthHandshakeInterceptor отказва handshake-а (401) — самото
-            // свързване хвърля изключение, точно това тестваме тук.
+            // TokenAuthHandshakeInterceptor rejects the handshake (401) — the connect
+            // call itself throws an exception, which is exactly what we're testing here.
         }
     }
 
-    // Token-ът пътува през Sec-WebSocket-Protocol (виж
-    // TokenAuthHandshakeInterceptor), не през "?token=" query param.
+    // The token travels via Sec-WebSocket-Protocol (see
+    // TokenAuthHandshakeInterceptor), not a "?token=" query param.
     private static WebSocketHttpHeaders headersWithToken(String token) {
         WebSocketHttpHeaders headers = new WebSocketHttpHeaders();
         headers.setSecWebSocketProtocol(java.util.List.of(token));

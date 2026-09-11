@@ -5,9 +5,9 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-// handleSetTheme записва суровия id стринг направо в users.bubble_theme/
-// background_theme/ui_theme (VARCHAR(30), без constraint) — тия helper-и са
-// единствената защита срещу непознат/произволен id, затова покрити тук.
+// handleSetTheme writes the raw id string directly into users.bubble_theme/
+// background_theme/ui_theme (VARCHAR(30), no constraint) — these helpers are
+// the only defense against an unknown/arbitrary id, hence covered here.
 class ChatThemeValidationTest {
 
     @Test
@@ -40,8 +40,8 @@ class ChatThemeValidationTest {
 
     @Test
     void themeCategoriesDoNotCrossValidateAsOthers() {
-        // solid_periwinkle е bubble theme id, не background/ui — cross-check
-        // хваща бъгове от типа "объркахме кой каталог сравняваме".
+        // solid_periwinkle is a bubble theme id, not background/ui — this cross-check
+        // catches bugs like "we mixed up which catalog we're comparing against".
         assertFalse(ChatTheme.isValidBackgroundThemeId(ChatTheme.DEFAULT_BUBBLE_THEME_ID));
         assertFalse(ChatTheme.isValidUiThemeId(ChatTheme.DEFAULT_BUBBLE_THEME_ID));
     }

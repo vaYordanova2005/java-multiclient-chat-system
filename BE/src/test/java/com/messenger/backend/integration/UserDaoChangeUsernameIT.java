@@ -17,13 +17,13 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-// UserDAO.changeUsername е най-сложната логика в проекта — една транзакция,
-// която пипа 4 таблици/колони (users, messages.sender, messages.receiver,
-// messages.room, friendships.requested_by). Преди тоя файл единствените 6
-// теста в проекта покриваха само UsernameValidator/ChatTheme — код, който
-// няма как да се счупи. Тук проверяваме срещу реален Postgres, не мокнат
-// DataSource, защото рискът е точно в SQL-а (WHERE клаузи, транзакционен
-// rollback, unique constraint), не в Java контролния поток.
+// UserDAO.changeUsername is the most complex logic in the project — one transaction
+// that touches 4 tables/columns (users, messages.sender, messages.receiver,
+// messages.room, friendships.requested_by). Before this file, the only 6
+// tests in the project covered UsernameValidator/ChatTheme — code that
+// pretty much can't break. Here we test against a real Postgres, not a mocked
+// DataSource, because the risk is precisely in the SQL (WHERE clauses, transactional
+// rollback, unique constraint), not in the Java control flow.
 class UserDaoChangeUsernameIT extends PostgresIntegrationTestBase {
 
     private UserDAO userDAO;
@@ -56,7 +56,7 @@ class UserDaoChangeUsernameIT extends PostgresIntegrationTestBase {
         publicMsg.room = "global";
         messageDAO.saveMessage(publicMsg);
 
-        // room "dm_alice_bobby" — азбучен ред, виж renameDmRooms в UserDAO
+        // room "dm_alice_bobby" — alphabetical order, see renameDmRooms in UserDAO
         Message dmOut = new Message("dm", "alice", "#ffffff", "hey bobby");
         dmOut.room = "dm_alice_bobby";
         dmOut.receiver = "bobby";
@@ -67,7 +67,7 @@ class UserDaoChangeUsernameIT extends PostgresIntegrationTestBase {
         dmIn.receiver = "alice";
         messageDAO.saveMessage(dmIn);
 
-        // Заявка ОТ alice КЪМ bobby -> friendships.requested_by = 'alice'
+        // Request FROM alice TO bobby -> friendships.requested_by = 'alice'
         assertEquals(FriendshipDAO.RequestResult.SUCCESS, friendshipDAO.sendRequest("alice", "bobby"));
 
         UserDAO.UsernameChangeResult result = userDAO.changeUsername("alice", "alicia");
@@ -77,13 +77,13 @@ class UserDaoChangeUsernameIT extends PostgresIntegrationTestBase {
         assertNull(userDAO.getUserColor("alice"));
         assertNotNull(userDAO.getUserColor("alicia"));
 
-        // 2. messages.sender (публичната стая)
+        // 2. messages.sender (the public room)
         List<Message> globalHistory = messageDAO.loadRoomHistory("global");
         assertEquals(1, globalHistory.size());
         assertEquals("alicia", globalHistory.get(0).user);
 
-        // 3. messages.sender/receiver (DM-овете) + messages.room преименувана —
-        // loadDMHistory търси по ТЕКУЩИТЕ имена, старото не трябва да мачва нищо.
+        // 3. messages.sender/receiver (the DMs) + messages.room renamed —
+        // loadDMHistory searches by the CURRENT names, the old one shouldn't match anything.
         List<Message> dmHistory = messageDAO.loadDMHistory("alicia", "bobby");
         assertEquals(2, dmHistory.size());
         assertTrue(dmHistory.stream().allMatch(m ->
@@ -94,8 +94,8 @@ class UserDaoChangeUsernameIT extends PostgresIntegrationTestBase {
         assertTrue(messageDAO.getDMConversationPartners("bobby").contains("alicia"));
         assertTrue(messageDAO.getDMConversationPartners("alice").isEmpty());
 
-        // 4. friendships.requested_by — иначе pending заявката увисва завинаги
-        // (виж коментара в UserDAO.changeUsername за защо)
+        // 4. friendships.requested_by — otherwise the pending request hangs forever
+        // (see the comment in UserDAO.changeUsername for why)
         assertEquals(List.of("alicia"), friendshipDAO.getPendingRequests("bobby"));
     }
 
@@ -111,7 +111,7 @@ class UserDaoChangeUsernameIT extends PostgresIntegrationTestBase {
         assertEquals(UserDAO.UsernameChangeResult.ALREADY_TAKEN,
                 userDAO.changeUsername("alice", "bobby"));
 
-        // Транзакцията трябва да е rollback-ната изцяло — не само users реда.
+        // The transaction must be fully rolled back — not just the users row.
         assertNotNull(userDAO.getUserColor("alice"));
         List<Message> globalHistory = messageDAO.loadRoomHistory("global");
         assertEquals(1, globalHistory.size());

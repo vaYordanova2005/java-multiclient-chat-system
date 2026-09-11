@@ -3,9 +3,9 @@ package com.messenger.backend;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
-// Заменя ServerMain.java. PORT/DB_URL/DB_USER/DB_PASSWORD се четат вече през
-// application.yml (виж spring.datasource.* и server.port), не тук — Spring
-// Boot автоконфигурира HikariCP DataSource и вградения Tomcat от тях.
+// Replaces ServerMain.java. PORT/DB_URL/DB_USER/DB_PASSWORD are now read via
+// application.yml (see spring.datasource.* and server.port), not here — Spring
+// Boot autoconfigures the HikariCP DataSource and the embedded Tomcat from them.
 @SpringBootApplication
 public class BackendApplication {
 
@@ -23,11 +23,11 @@ public class BackendApplication {
             System.exit(1);
         }
 
-        // Spring ще откаже да стартира и без тая проверка (${DB_PASSWORD} без
-        // default value е задължителен placeholder), но само с generic
-        // "Could not resolve placeholder 'DB_PASSWORD'" грешка. Пазим същото
-        // ясно съобщение, което Database.java даваше преди, вместо да разчитаме
-        // на generic-a на Spring.
+        // Spring will refuse to start even without this check (${DB_PASSWORD} with no
+        // default value is a mandatory placeholder), but only with the generic
+        // "Could not resolve placeholder 'DB_PASSWORD'" error. We keep the same
+        // clear message Database.java used to give, instead of relying
+        // on Spring's generic one.
         String dbPassword = System.getenv("DB_PASSWORD");
         if (dbPassword == null || dbPassword.isBlank()) {
             System.err.println(
@@ -37,9 +37,9 @@ public class BackendApplication {
             System.exit(1);
         }
 
-        // Подписва session token-ите от AuthController (виж TokenService) — без
-        // тая проверка Spring пак откаже да старне (${AUTH_TOKEN_SECRET} без
-        // default), но само с generic "Could not resolve placeholder" грешка.
+        // Signs the session tokens from AuthController (see TokenService) — without
+        // this check Spring would still refuse to start (${AUTH_TOKEN_SECRET} with no
+        // default), but only with a generic "Could not resolve placeholder" error.
         String authTokenSecret = System.getenv("AUTH_TOKEN_SECRET");
         if (authTokenSecret == null || authTokenSecret.isBlank()) {
             System.err.println(

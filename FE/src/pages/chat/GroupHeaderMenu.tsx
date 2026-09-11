@@ -17,6 +17,12 @@ export default function GroupHeaderMenu({
   const [renaming, setRenaming] = useState(false);
   const [nameDraft, setNameDraft] = useState(group.name);
   const panelRef = useRef<HTMLDivElement>(null);
+  // Enter -> submitRename() -> setRenaming(false) unmounts the input ->
+  // onBlur fires -> submitRename() again. The trimmed !== group.name guard
+  // doesn't catch this because group.name hasn't been updated by the server
+  // yet when the second call runs. This ref makes the first call win and the
+  // blur-triggered-by-unmount call a no-op.
+  const submittedRef = useRef(false);
 
   useEffect(() => {
     const handlePointerDown = (e: MouseEvent) => {
@@ -30,6 +36,9 @@ export default function GroupHeaderMenu({
   }, [onClose]);
 
   function submitRename() {
+    if (submittedRef.current) return;
+    submittedRef.current = true;
+
     const trimmed = nameDraft.trim();
     if (trimmed && trimmed.length <= MAX_GROUP_NAME_LENGTH && trimmed !== group.name) {
       chat.renameGroup(group.id, trimmed);
@@ -54,7 +63,13 @@ export default function GroupHeaderMenu({
             onBlur={submitRename}
           />
         ) : (
-          <div className={styles.nameRow} onClick={() => setRenaming(true)}>
+          <div
+            className={styles.nameRow}
+            onClick={() => {
+              submittedRef.current = false;
+              setRenaming(true);
+            }}
+          >
             <span className={styles.nameText}>{group.name}</span>
             <span className={styles.editHint}>✎</span>
           </div>

@@ -5,13 +5,13 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 // ChatTheme (BE/README.md "Known limitation: Message.java / ChatTheme.java
-// duplication") е ~300 реда цветови каталози, само на сървъра. Вместо ФЕ да
-// го преписва на ръка в TypeScript — сигурен източник на разминаване при
-// първата добавена/сменена тема — то си го дърпа оттук веднъж при зареждане.
-// isValidBubbleThemeId/isValidBackgroundThemeId/isValidUiThemeId в
-// ClientHandler.isValidThemeSelection() остават единствения authority за кои
-// ID-та се приемат — тоя endpoint е само read-модел за UI-то, не променя тая
-// валидация.
+// duplication") is ~300 lines of color catalogs, server-side only. Instead of the
+// FE hand-copying it into TypeScript — a guaranteed source of drift the
+// first time a theme gets added/changed — it pulls it from here once on load.
+// isValidBubbleThemeId/isValidBackgroundThemeId/isValidUiThemeId in
+// ClientHandler.isValidThemeSelection() remain the sole authority on which
+// IDs are accepted — this endpoint is just a read model for the UI, it doesn't change that
+// validation.
 @RestController
 public class ThemeController {
 

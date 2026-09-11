@@ -1,23 +1,23 @@
--- Migration 001 — за база, създадена с ПРЕДИШНАТА версия на schema.sql.
+-- Migration 001 — for a database created with the PREVIOUS version of schema.sql.
 --
--- Защо е нужен отделен файл: schema.sql ползва CREATE TABLE IF NOT EXISTS,
--- което при вече съществуваща таблица не прави НИЩО — нито сменя типа на
--- колона, нито трие таблици. Затова промените от code review-а
--- (messages.timestamp -> TIMESTAMPTZ, махнатите мъртви таблици) НЕ се
--- прилагат автоматично върху вече деплойната Neon база само защото
--- schema.sql е обновен.
+-- Why a separate file is needed: schema.sql uses CREATE TABLE IF NOT EXISTS,
+-- which does NOTHING against an already-existing table — it neither changes a
+-- column's type nor drops tables. So the changes from the code review
+-- (messages.timestamp -> TIMESTAMPTZ, the removed dead tables) do NOT get
+-- applied automatically to an already-deployed Neon database just because
+-- schema.sql was updated.
 --
--- Пусни го ВЕДНЪЖ срещу съществуваща база (Neon SQL editor или psql -f).
--- Нова, празна база не се нуждае от него — schema.sql вече описва
--- крайното състояние.
+-- Run this ONCE against an existing database (Neon SQL editor or psql -f).
+-- A new, empty database doesn't need it — schema.sql already describes
+-- the final state.
 
 BEGIN;
 
--- MessageDAO вече чете колоната като OffsetDateTime
--- (rs.getObject("timestamp", OffsetDateTime.class)) и я праща по кабела като
--- ISO-8601. Стар TIMESTAMP без timezone не носи offset, затова го
--- интерпретираме като UTC — това е, което CURRENT_TIMESTAMP е записвал на
--- сървъра (Neon compute-ът работи в UTC).
+-- MessageDAO now reads the column as OffsetDateTime
+-- (rs.getObject("timestamp", OffsetDateTime.class)) and sends it over the wire as
+-- ISO-8601. An old TIMESTAMP without timezone carries no offset, so we
+-- interpret it as UTC — that's what CURRENT_TIMESTAMP was writing on the
+-- server (Neon's compute runs in UTC).
 ALTER TABLE messages
     ALTER COLUMN timestamp TYPE TIMESTAMPTZ
     USING timestamp AT TIME ZONE 'UTC';
@@ -25,7 +25,7 @@ ALTER TABLE messages
 ALTER TABLE messages
     ALTER COLUMN timestamp SET DEFAULT now();
 
--- Нито един ред Java код не ги чете или пише — виж code review-а.
+-- Not a single line of Java code reads or writes these — see the code review.
 DROP TABLE IF EXISTS conversations;
 DROP TABLE IF EXISTS user_status;
 

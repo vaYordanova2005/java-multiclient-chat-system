@@ -2,12 +2,12 @@ package com.messenger.backend.validation;
 
 import java.util.regex.Pattern;
 
-// Централизирана whitelist проверка за username-и (регистрация И смяна на
-// username). Auth вече е REST/JSON (AuthController), не "|"-делимитиран
-// socket протокол, но DM стаите след auth-а СЕ ОЩЕ се парсват като
-// "dm_userA_userB" (room.split("_", 3)) — username съдържащ "_" би счупил
-// тоя парсър. Alnum-only whitelist елиминира проблема изцяло, вместо да се
-// опитваме да escape-ваме навсякъде, където username-и пътуват по протокола.
+// Centralized whitelist check for usernames (registration AND username
+// change). Auth is now REST/JSON (AuthController), not a "|"-delimited
+// socket protocol, but DM rooms after auth are STILL parsed as
+// "dm_userA_userB" (room.split("_", 3)) — a username containing "_" would break
+// that parser. An alnum-only whitelist eliminates the problem entirely, instead of
+// trying to escape it everywhere usernames travel through the protocol.
 public final class UsernameValidator {
 
     private static final Pattern USERNAME_PATTERN = Pattern.compile("^[A-Za-z0-9]{3,30}$");

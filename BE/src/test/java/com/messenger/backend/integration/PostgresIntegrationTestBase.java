@@ -13,28 +13,28 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.Statement;
 
-// Реален Postgres чрез Testcontainers + пълната schema.sql, за DAO-ниво
-// интеграционни тестове, на които не им трябва пълен Spring контекст —
-// DAO-тата взимат само DataSource в конструктора си.
+// Real Postgres via Testcontainers + the full schema.sql, for DAO-level
+// integration tests that don't need a full Spring context —
+// the DAOs only take a DataSource in their constructor.
 //
-// Всеки подклас получава СВОЙ контейнер (JVM-статичен per test class,
-// Testcontainers го стартира веднъж за класа) — по-бавно от споделяне между
-// класове, но изолира данните напълно и няма нужда от ред на изпълнение.
+// Every subclass gets ITS OWN container (JVM-static per test class,
+// Testcontainers starts it once per class) — slower than sharing across
+// classes, but fully isolates data and needs no execution ordering.
 @Testcontainers
 public abstract class PostgresIntegrationTestBase {
 
-    // @Container (не ръчен .start()) — само така @Testcontainers разпознава
-    // полето и го спира автоматично след класа. Без анотацията контейнерът
-    // никога не се спираше изрично (само Ryuk-ът го чистеше по-късно,
-    // асинхронно, не веднага след тоя test class).
+    // @Container (not a manual .start()) — this is the only way @Testcontainers
+    // recognizes the field and stops it automatically after the class. Without the
+    // annotation the container was never explicitly stopped (only Ryuk
+    // cleaned it up later, asynchronously, not right after this test class).
     @Container
     private static final PostgreSQLContainer<?> POSTGRES =
             new PostgreSQLContainer<>("postgres:16-alpine");
 
     protected static HikariDataSource dataSource;
 
-    // @Testcontainers стартира @Container полето ПРЕДИ това да се изпълни
-    // (същият extension ordering, на който разчита и WebSocketProtocolIT).
+    // @Testcontainers starts the @Container field BEFORE this runs
+    // (the same extension ordering that WebSocketProtocolIT also relies on).
     @BeforeAll
     static void buildDataSourceAndApplySchema() throws Exception {
         HikariConfig config = new HikariConfig();
@@ -47,9 +47,9 @@ public abstract class PostgresIntegrationTestBase {
         applySchema();
     }
 
-    // Чете schema.sql от classpath-а (src/main/resources), не от файловата
-    // система по относителен път — независимо от работната директория, от
-    // която Maven Surefire стартира тестовете.
+    // Reads schema.sql from the classpath (src/main/resources), not from the
+    // filesystem via a relative path — independent of the working directory that
+    // Maven Surefire starts the tests from.
     private static void applySchema() throws Exception {
         String schemaSql;
         try (InputStream is = PostgresIntegrationTestBase.class.getClassLoader()
@@ -62,9 +62,9 @@ public abstract class PostgresIntegrationTestBase {
 
         try (Connection conn = dataSource.getConnection();
              Statement stmt = conn.createStatement()) {
-            // schema.sql е няколко CREATE TABLE/INDEX statement-а, разделени с
-            // ";" — pgJDBC поддържа изпълнение на няколко statement-а наведнъж
-            // през простия query protocol, стига да няма bind параметри.
+            // schema.sql is several CREATE TABLE/INDEX statements, separated by
+            // ";" — pgJDBC supports executing several statements at once
+            // via the simple query protocol, as long as there are no bind parameters.
             stmt.execute(schemaSql);
         }
     }

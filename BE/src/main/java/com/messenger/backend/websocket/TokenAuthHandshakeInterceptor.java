@@ -10,16 +10,16 @@ import org.springframework.web.socket.server.HandshakeInterceptor;
 import java.util.Map;
 import java.util.Optional;
 
-// Auth вече минава изцяло през REST (AuthController) — сокетът не приема
-// НИКАКВИ pre-auth команди повече. Затова идентичността се установява ТУК,
-// при handshake-а, от Sec-WebSocket-Protocol заглавния ред (подаден от FE-то
-// като втория аргумент на WebSocket конструктора — виж FE/src/chat/socket.ts),
-// не от "?token=" query параметър — query низовете са това, което proxy/
-// сървър access log-овете пазят по подразбиране, тоя header не е. Клиентът
-// получава самия token от POST /api/auth/login. Невалиден/липсващ/изтекъл
-// token -> handshake-ът се отказва (401), връзка изобщо не се отваря —
-// ChatWebSocketHandler по-долу вече може безусловно да предположи, че всяка
-// отворена сесия е автентикирана.
+// Auth now goes entirely through REST (AuthController) — the socket no
+// longer accepts ANY pre-auth commands. So identity is established HERE,
+// at the handshake, from the Sec-WebSocket-Protocol header (passed by the FE
+// as the second argument to the WebSocket constructor — see FE/src/chat/socket.ts),
+// not from a "?token=" query parameter — query strings are what proxy/
+// server access logs keep by default, this header isn't. The client gets
+// the token itself from POST /api/auth/login. An invalid/missing/expired
+// token -> the handshake is rejected (401), the connection never opens —
+// ChatWebSocketHandler below can now unconditionally assume every open
+// session is authenticated.
 public class TokenAuthHandshakeInterceptor implements HandshakeInterceptor {
 
     public static final String USERNAME_ATTRIBUTE = "username";

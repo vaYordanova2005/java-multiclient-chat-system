@@ -10,12 +10,12 @@
  */
 :root {
   /* Lilac Dreamer base palette */
-  --lilac-1: #c8ceee; /* светло лилаво-синьо */
-  --lilac-2: #e8daf0; /* светло лилаво */
-  --lilac-3: #f3e4f5; /* почти бяло лилаво (app background) */
-  --lilac-4: #fcdce1; /* пастелно розово */
-  --lilac-5: #d8bee5; /* лилаво */
-  --lilac-6: #a7abde; /* по-наситено лилаво-синьо */
+  --lilac-1: #c8ceee; /* light lilac-blue */
+  --lilac-2: #e8daf0; /* light lilac */
+  --lilac-3: #f3e4f5; /* near-white lilac (app background) */
+  --lilac-4: #fcdce1; /* pastel pink */
+  --lilac-5: #d8bee5; /* lilac */
+  --lilac-6: #a7abde; /* more saturated lilac-blue */
 
   /* Sky base palette */
   --sky-1: #d9f0f6;
@@ -26,7 +26,7 @@
   --sky-6: #a8b5e1;
 
   /* Text */
-  --text-dark: #3d3458; /* тъмно лилаво-сиво, не черно */
+  --text-dark: #3d3458; /* dark lilac-gray, not black */
   --text-muted: #7a6f94;
   --text-on-bubble: #2d2640;
 

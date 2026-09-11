@@ -21,10 +21,10 @@ public class UserDAO {
 
     private static final Logger log = LoggerFactory.getLogger(UserDAO.class);
 
-    // Запазени за конкретни акаунти (виж appearance-picker-а/Avatar.tsx
-    // fallback) — черно за "dev", оранжево за "Claude". Изключени от
-    // случайното генериране, за да не може регистрация на нов потребител
-    // случайно да кацне на същия цвят.
+    // Reserved for specific accounts (see the appearance-picker/Avatar.tsx
+    // fallback) — black for "dev", orange for "Claude". Excluded from
+    // random generation so a new user's registration can't accidentally
+    // land on the same color.
     private static final Set<String> RESERVED_COLORS = Set.of("#000000", "#F97316");
 
     private final DataSource dataSource;
@@ -37,7 +37,7 @@ public class UserDAO {
         return dataSource.getConnection();
     }
 
-    // Генерира случаен HEX цвят — извиква се ВЕДНЪЖ, при регистрация.
+    // Generates a random HEX color — called ONCE, at registration.
     private String generateRandomColor() {
         Random rnd = new Random();
         String color;
@@ -48,17 +48,17 @@ public class UserDAO {
         return color;
     }
 
-    // 🆕 REGISTER USER + security question (email е премахнат — не се ползва
-    // никъде в приложението, само добавя ненужна повърхност за грешки)
+    // 🆕 REGISTER USER + security question (email was removed — not used
+    // anywhere in the app, just adds unnecessary surface for errors)
     public boolean registerUserWithSecurityQuestion(String username, String password,
                                                        String securityQuestion, String securityAnswer) {
 
-        // Хешираме паролата преди да я запишем — никога не пазим plain text
+        // Hash the password before storing it — never keep plain text
         String hashedPassword = BCrypt.hashpw(password, BCrypt.gensalt());
 
-        // Хешираме и отговора на security question-а по същия начин —
-        // ако базата изтече, атакуващ не трябва да може директно да прочете
-        // отговорите и да си reset-ne произволни пароли.
+        // Hash the security question answer the same way —
+        // if the DB leaks, an attacker shouldn't be able to directly read
+        // the answers and reset arbitrary passwords.
         String hashedAnswer = securityAnswer != null
                 ? BCrypt.hashpw(normalizeAnswer(securityAnswer), BCrypt.gensalt())
                 : null;
@@ -93,25 +93,25 @@ public class UserDAO {
         }
     }
 
-    // Нормализираме отговора преди хеширане/сравнение (lowercase + trim),
-    // за да "Fluffy" и "fluffy " се третират като еднакъв отговор —
-    // потребителите не помнят точния case/whitespace месеци по-късно.
+    // Normalize the answer before hashing/comparing (lowercase + trim),
+    // so "Fluffy" and "fluffy " are treated as the same answer —
+    // users don't remember the exact case/whitespace months later.
     private String normalizeAnswer(String answer) {
         return answer.trim().toLowerCase();
     }
 
-    // Резултат от опит за автентикация — разграничава "грешна парола/няма
-    // такъв потребител" от "не успяхме да проверим, базата е недостъпна".
-    // Клиентският код трябва да покаже различно съобщение за всеки случай:
-    // иначе при паднала база потребителят вижда подвеждащото "Wrong username
-    // or password" и може да си мисли, че е забравил паролата.
+    // Result of an authentication attempt — distinguishes "wrong password/no
+    // such user" from "couldn't verify it, the DB is unreachable".
+    // Calling code must show a different message for each case:
+    // otherwise, when the DB is down, the user sees the misleading "Wrong username
+    // or password" and might think they forgot their password.
     public enum AuthResult { SUCCESS, INVALID_CREDENTIALS, ERROR }
 
     public AuthResult authenticate(String username, String password) {
 
-        // Вече не сравняваме паролата в SQL заявката (WHERE password = ?),
-        // защото хешът е различен всеки път (различна salt). Първо вземаме
-        // хеша по username, после проверяваме с BCrypt.checkpw.
+        // We no longer compare the password in the SQL query (WHERE password = ?),
+        // because the hash is different every time (different salt). First we
+        // fetch the hash by username, then verify with BCrypt.checkpw.
         String sql = "SELECT password FROM users WHERE username = ?";
 
         try (Connection conn = getConnection();
@@ -122,7 +122,7 @@ public class UserDAO {
             ResultSet rs = stmt.executeQuery();
 
             if (!rs.next()) {
-                return AuthResult.INVALID_CREDENTIALS; // няма такъв потребител
+                return AuthResult.INVALID_CREDENTIALS; // no such user
             }
 
             String storedHash = rs.getString("password");
@@ -136,23 +136,23 @@ public class UserDAO {
         }
     }
 
-    // Удобен boolean wrapper — за вътрешни проверки (напр. deleteAccount), на
-    // които не им пука ЗАЩО автентикацията се е провалила, само дали е успяла.
+    // Convenient boolean wrapper — for internal checks (e.g. deleteAccount) that
+    // don't care WHY authentication failed, only whether it succeeded.
     public boolean loginUser(String username, String password) {
         return authenticate(username, password) == AuthResult.SUCCESS;
     }
 
-    // Проверява, че username-ът от токена ВСЕ ОЩЕ е реален ред в users — викан
-    // веднъж на WebSocket connect (ChatWebSocketHandler), не на всяко
-    // съобщение. Токенът е stateless и валиден до 24ч след издаване
-    // (TokenService) — без тая проверка изтрит акаунт (delete_account) или
-    // преименуван (changeUsername, старото име) продължава да се свързва
-    // призрачно със стар токен: появява се в online списъка, съобщенията му
-    // се записват със sender, който няма ред в users (null color/avatar от
-    // LEFT JOIN), или ensureUserColor прави UPDATE върху 0 реда. DB грешка се
-    // третира като "не съществува" (false) — същото решение като
-    // FriendshipDAO.userExists за идентичен SQL: по-безопасно да откажем
-    // connect-а при несигурност, отколкото да пуснем евентуален призрак.
+    // Checks that the username from the token is STILL a real row in users — called
+    // once on WebSocket connect (ChatWebSocketHandler), not on every
+    // message. The token is stateless and valid for up to 24h after issuing
+    // (TokenService) — without this check, a deleted account (delete_account) or
+    // a renamed one (changeUsername, old name) keeps connecting as a ghost
+    // with the old token: it shows up in the online list, its messages get
+    // saved with a sender that has no row in users (null color/avatar from
+    // the LEFT JOIN), or ensureUserColor does an UPDATE on 0 rows. A DB error is
+    // treated as "doesn't exist" (false) — same decision as
+    // FriendshipDAO.userExists for identical SQL: safer to reject the
+    // connect when uncertain than to let a possible ghost through.
     public boolean userExists(String username) {
         String sql = "SELECT 1 FROM users WHERE username = ?";
         try (Connection conn = getConnection();
@@ -165,10 +165,10 @@ public class UserDAO {
         }
     }
 
-    // Вътрешен read, БЕЗ страничен запис — хвърля SQLException вместо да я
-    // поглъща, за да могат getUserColor() и ensureUserColor() да реагират
-    // различно на "няма ред/няма цвят" срещу "заявката гръмна" (виж защо
-    // това разграничение е важно в коментара на ensureUserColor()).
+    // Internal read, with NO side-effecting write — throws SQLException instead of
+    // swallowing it, so getUserColor() and ensureUserColor() can react
+    // differently to "no row/no color" vs. "the query blew up" (see why
+    // this distinction matters in ensureUserColor()'s comment).
     private String selectUserColor(String username) throws SQLException {
         String sql = "SELECT color FROM users WHERE username = ?";
 
@@ -187,10 +187,10 @@ public class UserDAO {
         return null;
     }
 
-    // Връща постоянния цвят на потребителя от базата — чист read, БЕЗ
-    // страничен запис. Връща null и при липсващ цвят, и при DB грешка
-    // (логвана) — извикващият не различава двата случая тук. За разлика от
-    // ensureUserColor(), тук това е ОК: чист read няма какво да развали.
+    // Returns the user's permanent color from the DB — a pure read, with NO
+    // side-effecting write. Returns null both for a missing color and for a DB
+    // error (logged) — the caller doesn't distinguish the two cases here. Unlike
+    // ensureUserColor(), this is OK here: a pure read has nothing to break.
     public String getUserColor(String username) {
         try {
             return selectUserColor(username);
@@ -200,15 +200,15 @@ public class UserDAO {
         }
     }
 
-    // Backfill за стари акаунти без цвят (регистрирани преди тая колона,
-    // или UPDATE-ът от миграцията не е стигнал до тях). Генерира и записва
-    // нов цвят, НО само ако наистина липсва — не и при DB грешка. Ако
-    // ползвахме getUserColor() тук (който връща null и в двата случая),
-    // временен SQLException в SELECT-а точно по време на login би довел до
-    // генериране и презаписване на НОВ случаен цвят върху постоянния на
-    // потребителя, само заради еднократен hiccup. При грешка връщаме null
-    // и НЕ пипаме базата — извикващият (completeLogin) просто няма цвят
-    // тоя път, вместо потребителят да го изгуби завинаги.
+    // Backfill for old accounts without a color (registered before this column
+    // existed, or the migration's UPDATE didn't reach them). Generates and
+    // saves a new color, BUT only if it's genuinely missing — not on a DB
+    // error. If we used getUserColor() here (which returns null in both
+    // cases), a transient SQLException in the SELECT right during login would
+    // generate and overwrite the user's permanent color with a NEW random one,
+    // just because of a one-off hiccup. On error we return null
+    // and do NOT touch the DB — the caller (completeLogin) simply has no color
+    // this time, instead of the user losing it permanently.
     public String ensureUserColor(String username) {
         String existing;
         try {
@@ -243,13 +243,13 @@ public class UserDAO {
     }
 
     // ============================================================
-    // PASSWORD RESET via Security Question (без имейл)
+    // PASSWORD RESET via Security Question (no email)
     // ============================================================
 
-    // Връща security question текста за даден username, или null ако
-    // потребителят не съществува ИЛИ няма зададен такъв въпрос (стари акаунти
-    // отпреди тая фийча). И в двата случая connect-ващия код трябва да върне
-    // generic "not found" отговор — не разкриваме коя от двете причини е.
+    // Returns the security question text for a given username, or null if
+    // the user doesn't exist OR has no such question set (old accounts from
+    // before this feature). In both cases the calling code must return a
+    // generic "not found" response — we don't reveal which of the two reasons it is.
     public String getSecurityQuestion(String username) {
         String sql = "SELECT security_question FROM users WHERE username = ?";
 
@@ -259,7 +259,7 @@ public class UserDAO {
             stmt.setString(1, username);
             ResultSet rs = stmt.executeQuery();
             if (rs.next()) {
-                return rs.getString("security_question"); // може да е null -> connect-ващия код го третира като "not found"
+                return rs.getString("security_question"); // may be null -> caller treats it as "not found"
             }
 
         } catch (SQLException e) {
@@ -268,7 +268,7 @@ public class UserDAO {
         return null;
     }
 
-    // Проверява отговора и, ако е верен, презаписва паролата с нова, хеширана.
+    // Checks the answer and, if correct, overwrites the password with a new, hashed one.
     public boolean resetPasswordWithSecurityAnswer(String username, String answer, String newPassword) {
         String sql = "SELECT security_answer_hash FROM users WHERE username = ?";
 
@@ -281,7 +281,7 @@ public class UserDAO {
             if (!rs.next()) return false;
 
             String storedHash = rs.getString("security_answer_hash");
-            if (storedHash == null) return false; // няма зададен security answer за тоя акаунт
+            if (storedHash == null) return false; // no security answer set for this account
 
             if (!BCrypt.checkpw(normalizeAnswer(answer), storedHash)) {
                 return false;
@@ -292,7 +292,7 @@ public class UserDAO {
             return false;
         }
 
-        // Отговорът е верен — записваме новата парола (хеширана)
+        // The answer is correct — save the new password (hashed)
         String newHash = BCrypt.hashpw(newPassword, BCrypt.gensalt());
         String updateSql = "UPDATE users SET password = ? WHERE username = ?";
 
@@ -311,10 +311,10 @@ public class UserDAO {
     }
 
     // ============================================================
-    // ТЕМИ — постоянни потребителски настройки (customization)
+    // THEMES — persistent user settings (customization)
     // ============================================================
 
-    // Малък value-обект за пренос на трите UI/chat настройки наведнъж
+    // A small value object for carrying the three UI/chat settings together
     public static class ThemePreferences {
         public String bubbleThemeId;
         public String backgroundThemeId;
@@ -327,7 +327,7 @@ public class UserDAO {
         }
     }
 
-    // Зарежда запазените теми на потребителя (или дефолтни, ако липсват/null)
+    // Loads the user's saved themes (or defaults, if missing/null)
     public ThemePreferences getThemePreferences(String username) {
         String sql = "SELECT bubble_theme, background_theme, ui_theme FROM users WHERE username = ?";
 
@@ -356,7 +356,7 @@ public class UserDAO {
         return new ThemePreferences(ChatTheme.DEFAULT_BUBBLE_THEME_ID, ChatTheme.DEFAULT_BACKGROUND_THEME_ID, ChatTheme.DEFAULT_UI_THEME_ID);
     }
 
-    // Записва избраната тема на балончетата
+    // Saves the chosen bubble theme
     public void setBubbleTheme(String username, String themeId) {
         String sql = "UPDATE users SET bubble_theme = ? WHERE username = ?";
 
@@ -372,7 +372,7 @@ public class UserDAO {
         }
     }
 
-    // Записва избраната тема на фона (solid или ombre, по id)
+    // Saves the chosen background theme (solid or ombre, by id)
     public void setBackgroundTheme(String username, String themeId) {
         String sql = "UPDATE users SET background_theme = ? WHERE username = ?";
 
@@ -388,7 +388,7 @@ public class UserDAO {
         }
     }
 
-    // Записва избрания UI theme accent swatch (ляв панел / bottom-nav / chat header)
+    // Saves the chosen UI theme accent swatch (left panel / bottom-nav / chat header)
     public void setUiTheme(String username, String themeId) {
         String sql = "UPDATE users SET ui_theme = ? WHERE username = ?";
 
@@ -405,7 +405,7 @@ public class UserDAO {
     }
 
     // ============================================================
-    // PROFILE — avatar + промяна на username
+    // PROFILE — avatar + username change
     // ============================================================
 
     public String getAvatarId(String username) {
@@ -417,7 +417,7 @@ public class UserDAO {
             stmt.setString(1, username);
             ResultSet rs = stmt.executeQuery();
             if (rs.next()) {
-                return rs.getString("avatar_id"); // може да е null -> fallback инициал-кръг на клиента
+                return rs.getString("avatar_id"); // may be null -> client falls back to an initial-letter circle
             }
 
         } catch (SQLException e) {
@@ -441,30 +441,30 @@ public class UserDAO {
         }
     }
 
-    // Резултат за смяна на username — отделен enum, защото може да се провали
-    // по две различни причини (вече заето, или невалиден вход), а клиентският
-    // UI трябва да покаже различно съобщение за всяка.
+    // Result of a username change — a separate enum because it can fail
+    // for two different reasons (already taken, or invalid input), and the client
+    // UI needs to show a different message for each.
     public enum UsernameChangeResult { SUCCESS, ALREADY_TAKEN, INVALID, ERROR }
 
-    // Преименуването пипа три места атомарно, в една транзакция:
-    //   1. users.username (самият акаунт)
-    //   2. messages.sender/receiver — иначе цялата стара история на потребителя
-    //      остава завинаги с старото име: LEFT JOIN към users вече не намира
-    //      ред (null color/avatar), а loadDMHistory(user1, user2) търси по
-    //      ТЕКУЩОТО име и вече не намира старите DM-и.
-    //   3. messages.room за "dm_userA_userB" редове — getDMConversationPartners
-    //      търси по тоя стринг (LIKE), затова и той трябва да се обнови.
-    // Не ползваме FK ON UPDATE CASCADE (алтернативата, предложена в ревюто),
-    // защото messages.sender пази и стойността "SERVER" за системни съобщения,
-    // която не е валиден ред в users — строг FK constraint би счупил всеки
-    // join/leave/system insert. Постигаме същия резултат ръчно, в транзакция.
+    // Renaming touches three places atomically, in one transaction:
+    //   1. users.username (the account itself)
+    //   2. messages.sender/receiver — otherwise the user's entire old history
+    //      stays with the old name forever: the LEFT JOIN to users no longer finds
+    //      a row (null color/avatar), and loadDMHistory(user1, user2) searches by
+    //      the CURRENT name and no longer finds the old DMs.
+    //   3. messages.room for "dm_userA_userB" rows — getDMConversationPartners
+    //      searches by this string (LIKE), so it must be updated too.
+    // We don't use FK ON UPDATE CASCADE (the alternative suggested in review),
+    // because messages.sender also holds the value "SERVER" for system messages,
+    // which isn't a valid row in users — a strict FK constraint would break every
+    // join/leave/system insert. We achieve the same result manually, in a transaction.
     public UsernameChangeResult changeUsername(String oldUsername, String newUsername) {
         if (newUsername == null || !UsernameValidator.isValid(newUsername.trim())) {
             return UsernameChangeResult.INVALID;
         }
         newUsername = newUsername.trim();
         if (newUsername.equals(oldUsername)) {
-            return UsernameChangeResult.SUCCESS; // нищо за правене, но не е грешка
+            return UsernameChangeResult.SUCCESS; // nothing to do, but not an error
         }
 
         try (Connection conn = getConnection()) {
@@ -492,14 +492,14 @@ public class UserDAO {
                     stmt.executeUpdate();
                 }
 
-                // friendships.user_a/user_b следват преименуването сами през
-                // ON UPDATE CASCADE, но requested_by НЕ е FK и остава със старото
-                // име. Ако не го обновим тук, pending заявка на преименувал се
-                // потребител увисва завинаги: getPendingRequests връща вече
-                // несъществуващото старо име, а acceptRequest/declineRequest
-                // търсят реда по (user_a, user_b, requested_by) — новото име в
-                // първите две вече не съвпада със старото в третото, match-ът е
-                // 0 реда и заявката не може нито да се приеме, нито да се откаже.
+                // friendships.user_a/user_b follow the rename automatically via
+                // ON UPDATE CASCADE, but requested_by is NOT an FK and stays with the
+                // old name. If we don't update it here, a pending request from a
+                // renamed user hangs forever: getPendingRequests returns the
+                // now-nonexistent old name, while acceptRequest/declineRequest
+                // look up the row by (user_a, user_b, requested_by) — the new name in
+                // the first two no longer matches the old one in the third, the
+                // match is 0 rows, and the request can neither be accepted nor declined.
                 try (PreparedStatement stmt = conn.prepareStatement(
                         "UPDATE friendships SET requested_by = ? WHERE requested_by = ?")) {
                     stmt.setString(1, newUsername);
@@ -527,11 +527,11 @@ public class UserDAO {
         }
     }
 
-    // Пренаписва "dm_userA_userB" room стойностите, в които oldUsername е един
-    // от двамата участници. Username-ите вече минават през UsernameValidator
-    // (само [A-Za-z0-9]), затова split("_", 3) е недвусмислен — не пипаме реда
-    // на двете имена, само заместваме съвпадащото, защото никой BE запитване
-    // не зависи от азбучния ред (loadDMHistory търси и в двете посоки).
+    // Rewrites "dm_userA_userB" room values where oldUsername is one of the
+    // two participants. Usernames already pass through UsernameValidator
+    // ([A-Za-z0-9] only), so split("_", 3) is unambiguous — we don't touch the
+    // order of the two names, just replace whichever matches, since no BE query
+    // depends on alphabetical order (loadDMHistory searches both directions).
     private void renameDmRooms(Connection conn, String oldUsername, String newUsername) throws SQLException {
         List<String> rooms = new ArrayList<>();
 
@@ -583,16 +583,16 @@ public class UserDAO {
             stmt.setString(1, username);
             ResultSet rs = stmt.executeQuery();
             if (rs.next()) {
-                return rs.getBoolean("show_online_status"); // SQL NULL -> false само ако default липсва
+                return rs.getBoolean("show_online_status"); // SQL NULL -> false only if the default is missing
             }
 
         } catch (SQLException e) {
             log.error("Database error in UserDAO", e);
         }
-        return true; // default: видим
+        return true; // default: visible
     }
 
-    // Малък value-обект: видимост + avatar накуп, за batch заявката по-долу.
+    // Small value object: visibility + avatar together, for the batch query below.
     public static class OnlineProfile {
         public final boolean showOnlineStatus;
         public final String avatarId;
@@ -603,10 +603,10 @@ public class UserDAO {
         }
     }
 
-    // Взима show_online_status + avatar_id за ВСИЧКИ подадени username-и в ЕДНА
-    // заявка, вместо getShowOnlineStatus(u) + getAvatarId(u) на всеки поотделно
-    // в цикъл (broadcastOnlineUsers иначе прави ~2N заявки на всяко
-    // connect/disconnect/rename/visibility-change събитие).
+    // Fetches show_online_status + avatar_id for ALL given usernames in ONE
+    // query, instead of getShowOnlineStatus(u) + getAvatarId(u) per user
+    // in a loop (broadcastOnlineUsers would otherwise make ~2N queries on every
+    // connect/disconnect/rename/visibility-change event).
     public Map<String, OnlineProfile> getOnlineProfiles(List<String> usernames) {
         Map<String, OnlineProfile> result = new HashMap<>();
         if (usernames.isEmpty()) return result;
@@ -653,18 +653,18 @@ public class UserDAO {
     // DANGER ZONE — Delete Account
     // ============================================================
 
-    // Изтрива акаунта изцяло. Съобщенията в messages остават обвързани по
-    // username като исторически записи (не каскадно изтриваме историята на
-    // чата — другите участници не трябва да изгубят контекста на разговора
-    // само защото единият е изтрил профила си).
+    // Deletes the account entirely. Messages in the messages table stay bound
+    // by username as historical records (we don't cascade-delete chat
+    // history — other participants shouldn't lose the conversation's context
+    // just because one side deleted their profile).
     //
-    // friendships и blocked_users ИМАТ foreign key към users.username, затова
-    // трябва изрично да изчистим тези редове първо — иначе DELETE FROM users
-    // ще се провали с constraint violation, ако потребителят има приятели
-    // или е блокирал/бил блокиран от някого.
+    // friendships and blocked_users HAVE a foreign key to users.username, so
+    // we must explicitly clear those rows first — otherwise DELETE FROM users
+    // would fail with a constraint violation if the user has friends
+    // or has blocked/been blocked by someone.
     public boolean deleteAccount(String username, String password) {
-        // Изискваме потвърждение с парола преди да изтрием — защитава от
-        // случайно/неоторизирано изтриване дори ако сесията е оставена отворена.
+        // Require password confirmation before deleting — guards against
+        // accidental/unauthorized deletion even if the session was left open.
         if (!loginUser(username, password)) {
             return false;
         }

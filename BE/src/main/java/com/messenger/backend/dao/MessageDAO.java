@@ -28,8 +28,8 @@ public class MessageDAO {
         return dataSource.getConnection();
     }
 
-    // SAVE MESSAGE (public room OR dm) — приема готов Message обект,
-    // за да не трябва да подаваме 5 отделни String параметъра ръчно навсякъде.
+    // SAVE MESSAGE (public room OR dm) — takes a ready-made Message object,
+    // so we don't have to pass 5 separate String parameters by hand everywhere.
     public void saveMessage(Message msg) {
 
         String sql = """
@@ -53,7 +53,7 @@ public class MessageDAO {
         }
     }
 
-    // Запазена сигнатура за съвместимост, ако някъде се вика по старому.
+    // Legacy signature kept for compatibility, in case it's still called the old way somewhere.
     public void saveMessage(String sender, String receiver, String room, String type, String message) {
         Message msg = new Message(type, sender, "", message);
         msg.room = room;
@@ -61,15 +61,15 @@ public class MessageDAO {
         saveMessage(msg);
     }
 
-    // LOAD ROOM HISTORY (general / channels) — връща готови Message обекти,
-    // не "сурови" JSON стрингове. Сериализацията към JSON става само веднъж,
-    // централно, чрез Gson — никакъв ръчен String.formatted().
-    // JOIN-ваме users, за да вземем ПОСТОЯННИЯ цвят на изпращача (users.color),
-    // вместо да зависим от случаен цвят в паметта на сървъра.
-    // Ограничаваме на последните 200 съобщения — без LIMIT, при достатъчно
-    // дълга история на активна стая, заявката би върнала хиляди редове наведнъж
-    // (бавно за мрежата + паметта на клиента). Subquery взима последните N в
-    // DESC ред, после външната заявка ги пресортира ASC за хронологично показване.
+    // LOAD ROOM HISTORY (general / channels) — returns ready-made Message objects,
+    // not "raw" JSON strings. Serialization to JSON happens only once,
+    // centrally, via Gson — no manual String.formatted().
+    // We JOIN users to get the sender's PERMANENT color (users.color),
+    // instead of depending on a random color in the server's memory.
+    // Capped at the last 200 messages — without a LIMIT, on a sufficiently
+    // long history for an active room, the query would return thousands of rows at once
+    // (slow for the network + client memory). The subquery takes the last N in
+    // DESC order, then the outer query re-sorts them ASC for chronological display.
     private static final int HISTORY_LOAD_LIMIT = 200;
 
     public List<Message> loadRoomHistory(String room) {
@@ -92,7 +92,7 @@ public class MessageDAO {
         });
     }
 
-    // LOAD DM HISTORY (между двама конкретни потребители)
+    // LOAD DM HISTORY (between two specific users)
     public List<Message> loadDMHistory(String user1, String user2) {
 
         String sql = """
@@ -117,23 +117,23 @@ public class MessageDAO {
         });
     }
 
-    // Удобен helper, ако ти трябва директно JSON стринг за изпращане по сокета
+    // Convenient helper if you need a raw JSON string directly for sending over the socket
     public String toJson(Message msg) {
         return gson.toJson(msg);
     }
 
-    // Намира всички различни DM партньори, с които потребителят РЕАЛНО е
-    // разменял съобщения досега (независимо дали другият е online сега).
-    // Решава проблема "чатовете изчезват при login, ако другия не е online" —
-    // клиентът вика това веднъж при login, за да напълни "CHATS" секцията.
+    // Finds every distinct DM partner the user has REALLY exchanged messages
+    // with so far (regardless of whether the other side is online now).
+    // Solves the "chats disappear on login if the other person isn't online" problem —
+    // the client calls this once at login to fill the "CHATS" section.
     public List<String> getDMConversationPartners(String username) {
-        // room формат е "dm_userA_userB" (userA < userB азбучно) — затова
-        // searchим по LIKE вместо да парсим sender/receiver двойки, защото е
-        // по-просто и устойчиво дори при стари записи.
+        // room format is "dm_userA_userB" (userA < userB alphabetically) — so
+        // we search by LIKE instead of parsing sender/receiver pairs, because it's
+        // simpler and more robust even for old records.
         //
-        // SECURITY: escape-ваме % и _ в username, преди да го ползваме в LIKE.
-        // Без това, username като "a%" би мачнал повече редове от очаквано
-        // (wildcard injection — не SQL injection, но логическо изтичане на данни).
+        // SECURITY: escape % and _ in username before using it in LIKE.
+        // Without this, a username like "a%" would match more rows than expected
+        // (wildcard injection — not SQL injection, but a logical data leak).
         String safeUsername = username.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
 
         String sql = """
@@ -190,19 +190,19 @@ public class MessageDAO {
                     msg.type = rs.getString("type");
                     msg.text = rs.getString("message");
 
-                    // Постоянният цвят на изпращача от users.color (чрез JOIN).
-                    // За системни съобщения ("SERVER") няма ред в users — fallback сиво.
+                    // The sender's permanent color from users.color (via JOIN).
+                    // For system messages ("SERVER") there's no row in users — fallback gray.
                     String dbColor = rs.getString("color");
                     msg.color = (dbColor != null) ? dbColor : "#b2bec3";
 
-                    // Avatar на изпращача (текущ, не "историческия" към момента
-                    // на изпращане — не пазим отделна снимка-във-времето на avatar-а).
+                    // The sender's avatar (current, not the "historical" one at the
+                    // moment of sending — we don't keep a separate point-in-time snapshot of the avatar).
                     msg.avatarId = rs.getString("avatar_id");
 
-                    // ISO-8601 UTC ("...Z"), СЪЩИЯТ формат като ClientHandler.getTime()
-                    // (Instant.now().toString()) — иначе живите съобщения и историята
-                    // пристигат при клиента в две различни ISO-8601 форми (offset тук
-                    // vs. Z там) и всеки консуматор трябва да парсва и двете.
+                    // ISO-8601 UTC ("...Z"), the SAME format as ClientHandler.getTime()
+                    // (Instant.now().toString()) — otherwise live messages and history
+                    // arrive at the client in two different ISO-8601 shapes (offset here
+                    // vs. Z there) and every consumer has to parse both.
                     OffsetDateTime ts = rs.getObject("timestamp", OffsetDateTime.class);
                     if (ts != null) {
                         msg.timestamp = ts.toInstant().toString();

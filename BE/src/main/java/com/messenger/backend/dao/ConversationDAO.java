@@ -36,7 +36,14 @@ public class ConversationDAO {
         String insertConv = "INSERT INTO conversations (name, created_by) VALUES (?, ?) RETURNING id";
         String insertMember = "INSERT INTO conversation_members (conversation_id, username) VALUES (?, ?) ON CONFLICT DO NOTHING";
 
-        try (Connection conn = getConnection()) {
+        // Connection is OUTSIDE try-with-resources on purpose — resource
+        // variables aren't in scope in catch/finally (it won't compile if
+        // you try), and rollback() on error needs to be explicit here,
+        // not silently rely on Hikari doing it when the connection
+        // returns to the pool.
+        Connection conn = null;
+        try {
+            conn = getConnection();
             conn.setAutoCommit(false);
             int id;
 
@@ -63,7 +70,28 @@ public class ConversationDAO {
 
         } catch (SQLException e) {
             log.error("Database error in ConversationDAO", e);
+            rollbackQuietly(conn);
             return -1;
+        } finally {
+            closeQuietly(conn);
+        }
+    }
+
+    private void rollbackQuietly(Connection conn) {
+        if (conn == null) return;
+        try {
+            conn.rollback();
+        } catch (SQLException e) {
+            log.error("Rollback failed in ConversationDAO", e);
+        }
+    }
+
+    private void closeQuietly(Connection conn) {
+        if (conn == null) return;
+        try {
+            conn.close();
+        } catch (SQLException e) {
+            log.error("Connection close failed in ConversationDAO", e);
         }
     }
 
@@ -102,17 +130,26 @@ public class ConversationDAO {
         }
     }
 
-    // Една транзакция: delete membership -> count remaining -> ако е 0,
-    // delete conversations реда. Две отделни auto-committed statement-а тук
-    // биха race-нали срещу конкурентен addMember, приземил се между count-а
-    // и delete-а на conversations (виж plan — известен compromise, избягнат
-    // именно с тая транзакция).
+    // One transaction: delete membership -> count remaining -> if 0,
+    // delete the conversations row. Two separate auto-committed statements here
+    // would race against a concurrent addMember landing between the count
+    // and the conversations delete (see plan — a known compromise, avoided
+    // precisely by this transaction).
     public void leaveGroup(int conversationId, String username) {
         String deleteMember = "DELETE FROM conversation_members WHERE conversation_id = ? AND username = ?";
         String countRemaining = "SELECT COUNT(*) FROM conversation_members WHERE conversation_id = ?";
         String deleteConversation = "DELETE FROM conversations WHERE id = ?";
+        // messages has no FK to conversations (room is a free-form VARCHAR, see
+        // schema.sql) — CASCADE on conversation_members when conversations is
+        // deleted does NOT sweep up these rows. Without this delete, the
+        // history of every disbanded group stays in messages forever,
+        // unreadable by anyone (isMember already rejects everyone) — pure
+        // unbounded growth.
+        String deleteMessages = "DELETE FROM messages WHERE room = ?";
 
-        try (Connection conn = getConnection()) {
+        Connection conn = null;
+        try {
+            conn = getConnection();
             conn.setAutoCommit(false);
 
             try (PreparedStatement ps = conn.prepareStatement(deleteMember)) {
@@ -135,12 +172,19 @@ public class ConversationDAO {
                     ps.setInt(1, conversationId);
                     ps.executeUpdate();
                 }
+                try (PreparedStatement ps = conn.prepareStatement(deleteMessages)) {
+                    ps.setString(1, "group_" + conversationId);
+                    ps.executeUpdate();
+                }
             }
 
             conn.commit();
 
         } catch (SQLException e) {
             log.error("Database error in ConversationDAO", e);
+            rollbackQuietly(conn);
+        } finally {
+            closeQuietly(conn);
         }
     }
 
@@ -180,10 +224,10 @@ public class ConversationDAO {
         return members;
     }
 
-    // Аналог на MessageDAO.getDMConversationPartners, но истинска заявка
-    // срещу conversation_members, не LIKE hack върху room стринг.
-    // N+1 (getMembers на всяка група) — приемливо за малки групи, същия
-    // "без преждевременна оптимизация" стил като останалите DAO-та тук.
+    // Analogous to MessageDAO.getDMConversationPartners, but a real query
+    // against conversation_members, not a LIKE hack over the room string.
+    // N+1 (getMembers per group) — acceptable for small groups, same
+    // "no premature optimization" style as the rest of the DAOs here.
     public List<GroupSummary> getUserGroups(String username) {
         String sql = """
             SELECT c.id, c.name
