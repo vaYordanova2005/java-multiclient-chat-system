@@ -222,11 +222,14 @@ java -jar target/backend-0.1.0.jar
 
 ### Environment variables
 
-Same contract as `legacy/Database.java` had:
+Same contract as `legacy/Database.java` had, except there is no local
+Postgres anymore — this project only runs against Neon (see "Database
+setup" below), so `DB_URL` has no default and is required, same as
+`DB_PASSWORD`:
 
 ```powershell
-$env:DB_URL      = "jdbc:postgresql://localhost:5432/chatdb"   # optional, this is already the default
-$env:DB_USER     = "chatapp_user"                                # optional, defaults to "chatapp_user"
+$env:DB_URL      = "jdbc:postgresql://<neon-pooled-host>/<db>?sslmode=require&prepareThreshold=0"  # required, no default
+$env:DB_USER     = "chatapp_user"                                # optional, defaults to "chatapp_user" — Neon's is a real value, see below
 $env:DB_PASSWORD = "your-postgres-password"                       # required, no default
 $env:PORT        = "5000"                                        # optional, defaults to 5000 (Render etc. inject this automatically)
 $env:TRUST_PROXY_HEADERS = "true"                                 # optional, defaults to false — see below

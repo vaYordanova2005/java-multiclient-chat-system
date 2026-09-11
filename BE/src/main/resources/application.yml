@@ -20,7 +20,10 @@ app:
 
 spring:
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5432/chatdb}
+    # No default (Neon-only project now — see BE/README.md "Database setup").
+    # BackendApplication.main() fails fast with a clear message if it's
+    # missing, same as DB_PASSWORD/AUTH_TOKEN_SECRET.
+    url: ${DB_URL}
     username: ${DB_USER:chatapp_user}
     password: ${DB_PASSWORD}
     hikari:

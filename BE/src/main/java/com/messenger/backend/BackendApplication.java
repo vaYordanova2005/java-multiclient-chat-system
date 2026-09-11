@@ -10,6 +10,19 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 public class BackendApplication {
 
     public static void main(String[] args) {
+        // No local Postgres anymore — DB_URL has no default in application.yml
+        // (see "Database setup (Neon / PostgreSQL)" in BE/README.md). Same
+        // fail-fast treatment as DB_PASSWORD/AUTH_TOKEN_SECRET below, instead
+        // of Spring's generic "Could not resolve placeholder 'DB_URL'".
+        String dbUrl = System.getenv("DB_URL");
+        if (dbUrl == null || dbUrl.isBlank()) {
+            System.err.println(
+                "DB_URL environment variable не е зададена. Задай я преди да пуснеш сървъра: "
+                + "PowerShell -> $env:DB_URL = \"jdbc:postgresql://<neon-pooled-host>/<db>?sslmode=require&prepareThreshold=0\""
+            );
+            System.exit(1);
+        }
+
         // Spring ще откаже да стартира и без тая проверка (${DB_PASSWORD} без
         // default value е задължителен placeholder), но само с generic
         // "Could not resolve placeholder 'DB_PASSWORD'" грешка. Пазим същото
