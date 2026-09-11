@@ -40,21 +40,43 @@ export default function ChatsTab({ chat, username }: { chat: ChatController; use
 
       {chat.searchResults.length > 0 && (
         <div className={common.list}>
-          {chat.searchResults.map((sr) => (
-            <div key={sr.username} className={common.card}>
-              <Avatar avatarId={chat.peerAvatars[sr.username]} displayName={sr.username} size={30} fallbackColor={sr.color} />
-              <span className={common.cardName}>{sr.username}</span>
-              {chat.blocked.includes(sr.username) ? (
-                <span className={common.blockedBadge}>🚫 Blocked</span>
-              ) : sr.isFriend ? (
-                <button className={common.friendsButton} onClick={() => chat.openDM(sr.username)}>
-                  ✓ Friends
-                </button>
-              ) : (
-                <SendRequestButton chat={chat} target={sr.username} />
-              )}
-            </div>
-          ))}
+          {chat.searchResults.map((sr) => {
+            const blocked = chat.blocked.includes(sr.username);
+            // Friends are one click away from a DM — the whole row opens it,
+            // same as CHATS/Friends rows, instead of only the small badge
+            // (which also required scanning ONLINE first to find them).
+            const clickable = sr.isFriend && !blocked;
+            return (
+              <div
+                key={sr.username}
+                className={common.card}
+                style={clickable ? { cursor: 'pointer' } : undefined}
+                onClick={clickable ? () => chat.openDM(sr.username) : undefined}
+                role={clickable ? 'button' : undefined}
+                tabIndex={clickable ? 0 : undefined}
+                onKeyDown={
+                  clickable
+                    ? (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          chat.openDM(sr.username);
+                        }
+                      }
+                    : undefined
+                }
+              >
+                <Avatar avatarId={chat.peerAvatars[sr.username]} displayName={sr.username} size={30} fallbackColor={sr.color} />
+                <span className={common.cardName}>{sr.username}</span>
+                {blocked ? (
+                  <span className={common.blockedBadge}>🚫 Blocked</span>
+                ) : sr.isFriend ? (
+                  <span className={common.friendsButton}>✓ Friends</span>
+                ) : (
+                  <SendRequestButton chat={chat} target={sr.username} />
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 

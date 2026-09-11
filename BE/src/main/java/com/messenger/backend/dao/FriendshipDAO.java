@@ -240,10 +240,13 @@ public class FriendshipDAO {
         // (wildcard injection / information disclosure, не класически SQLi).
         String safeQuery = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
 
+        // ILIKE (Postgres case-insensitive LIKE), не LIKE — иначе "claude" не
+        // намира "Claude"/"CLAUDE". LIKE е case-sensitive by default в Postgres
+        // (за разлика от MySQL, откъдето идва повечето интуиция за LIKE).
         String sql = """
             SELECT username, color
             FROM users
-            WHERE username LIKE ? AND username != ?
+            WHERE username ILIKE ? AND username != ?
             ORDER BY username ASC
             LIMIT 10
         """;
