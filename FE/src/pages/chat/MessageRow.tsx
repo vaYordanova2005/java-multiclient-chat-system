@@ -25,7 +25,7 @@ export default function MessageRow({
   if (msg.type === 'system' || msg.type === 'leave' || msg.type === 'room_join') {
     return (
       <div className={styles.systemWrapper}>
-        <span className={styles.systemText}>{msg.text || `➡️ ${msg.user} joined`}</span>
+        <span className={styles.systemText}>{msg.text || `${msg.user} joined`}</span>
       </div>
     );
   }

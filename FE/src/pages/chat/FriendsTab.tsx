@@ -7,7 +7,7 @@ export default function FriendsTab({ chat, onOpenFriend }: { chat: ChatControlle
 
   return (
     <div className={common.scrollArea}>
-      <div className={common.panelHeader}>👥 Friends</div>
+      <div className={common.panelHeader}>Friends</div>
 
       {chat.pending.length > 0 && (
         <div className={common.pendingBox}>

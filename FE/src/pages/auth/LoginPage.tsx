@@ -31,7 +31,7 @@ export default function LoginPage() {
     const user = username.trim();
     const pass = password;
     if (!user || !pass) {
-      setStatus({ text: '❌ Please fill in all fields', variant: 'error' });
+      setStatus({ text: 'Please fill in all fields', variant: 'error' });
       return;
     }
 
@@ -44,7 +44,7 @@ export default function LoginPage() {
       navigate('/chat', { replace: true });
     } catch (err) {
       const message = err instanceof ApiError ? err.message : 'Could not reach the server';
-      setStatus({ text: `❌ ${message}`, variant: 'error' });
+      setStatus({ text: message, variant: 'error' });
     } finally {
       setSubmitting(false);
     }

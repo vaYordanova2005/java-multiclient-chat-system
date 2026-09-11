@@ -53,7 +53,7 @@ export default function AppearanceOverlay({
     <div className={styles.wrapper}>
       <div className={styles.panel} ref={panelRef}>
         <div className={styles.header}>
-          <span className={styles.title}>🎨 Appearance</span>
+          <span className={styles.title}>Appearance</span>
           <button className={styles.closeButton} onClick={onClose}>
             ✕
           </button>

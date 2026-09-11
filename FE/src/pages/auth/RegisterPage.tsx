@@ -31,15 +31,15 @@ export default function RegisterPage() {
     const answer = securityAnswer.trim();
 
     if (!user || !pass || !rep || !question || !answer) {
-      setStatus({ text: '❌ Please fill in all fields', isError: true });
+      setStatus({ text: 'Please fill in all fields', isError: true });
       return;
     }
     if (pass !== rep) {
-      setStatus({ text: '❌ Passwords do not match', isError: true });
+      setStatus({ text: 'Passwords do not match', isError: true });
       return;
     }
     if (pass.length < 6) {
-      setStatus({ text: '❌ Password must be at least 6 characters', isError: true });
+      setStatus({ text: 'Password must be at least 6 characters', isError: true });
       return;
     }
 
@@ -50,11 +50,11 @@ export default function RegisterPage() {
       await register(user, pass, question, answer);
       navigate('/login', {
         replace: true,
-        state: { username: user, notice: '✅ Registration successful! Please login.' },
+        state: { username: user, notice: 'Registration successful! Please login.' },
       });
     } catch (err) {
       const message = err instanceof ApiError ? err.message : 'Could not reach the server';
-      setStatus({ text: `❌ ${message}`, isError: true });
+      setStatus({ text: message, isError: true });
     } finally {
       setSubmitting(false);
     }

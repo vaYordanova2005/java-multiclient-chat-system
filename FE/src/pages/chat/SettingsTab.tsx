@@ -100,7 +100,7 @@ function ProfileSection({ chat, username }: { chat: ChatController; username: st
           </div>
         </div>
       </div>
-      <div className={styles.hint}>📌 Uploading a custom avatar from your device is coming in a future update.</div>
+      <div className={styles.hint}>Uploading a custom avatar from your device is coming in a future update.</div>
     </>
   );
 }
@@ -123,7 +123,7 @@ function PrivacySection({ chat }: { chat: ChatController }) {
       <div className={styles.explanation}>
         When disabled, other users won't see you in the online list, even while you're connected.
       </div>
-      <div className={styles.hint}>📌 "Last Seen" display is planned for a future update.</div>
+      <div className={styles.hint}>"Last Seen" display is planned for a future update.</div>
     </>
   );
 }
@@ -204,7 +204,7 @@ function DangerSection({ chat }: { chat: ChatController }) {
 
   return (
     <div className={styles.dangerBox}>
-      <div className={styles.dangerTitle}>⚠️ DANGER ZONE</div>
+      <div className={styles.dangerTitle}>DANGER ZONE</div>
       <div style={{ color: 'var(--text-dark)', fontSize: 13 }}>
         Deleting your account is permanent and cannot be undone. Your chat history will remain visible to others, but
         your profile will be gone.

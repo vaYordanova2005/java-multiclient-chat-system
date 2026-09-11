@@ -73,7 +73,7 @@ export default function ChatsTab({ chat, username }: { chat: ChatController; use
         <div className={common.searchBar}>
           <input
             className={common.searchInput}
-            placeholder="🔍 Search users..."
+            placeholder="Search users..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && chat.search(query)}
@@ -114,7 +114,7 @@ export default function ChatsTab({ chat, username }: { chat: ChatController; use
                   <Avatar avatarId={chat.peerAvatars[sr.username]} displayName={sr.username} size={30} fallbackColor={sr.color} />
                   <span className={common.cardName}>{sr.username}</span>
                   {blocked ? (
-                    <span className={common.blockedBadge}>🚫 Blocked</span>
+                    <span className={common.blockedBadge}>Blocked</span>
                   ) : sr.isFriend ? (
                     <span className={common.friendsButton}>✓ Friends</span>
                   ) : (

@@ -48,7 +48,7 @@ export default function ChatArea({
 
   const isDm = chat.currentRoom.startsWith('dm_');
   const otherUser = isDm ? otherDmUser(chat.currentRoom, username) : null;
-  const title = chat.currentRoom === GLOBAL_ROOM ? '🌍 Global' : `💬 ${otherUser}`;
+  const title = chat.currentRoom === GLOBAL_ROOM ? 'Global' : otherUser;
   const otherOnline = otherUser ? chat.onlineUsers.includes(otherUser) : false;
 
   const bubbleTheme = catalog.bubbleThemes.find((t) => t.id === chat.theme.bubbleThemeId);
@@ -75,7 +75,7 @@ export default function ChatArea({
       </div>
 
       <div className={styles.background} style={{ background: backgroundThemeCss(backgroundTheme) }}>
-        {!chat.connected && <div className={styles.disconnectedBanner}>⚠️ Disconnected — reconnecting…</div>}
+        {!chat.connected && <div className={styles.disconnectedBanner}>Disconnected — reconnecting…</div>}
 
         {chat.notices.length > 0 && (
           <div className={styles.notices} role="status" aria-live="polite">

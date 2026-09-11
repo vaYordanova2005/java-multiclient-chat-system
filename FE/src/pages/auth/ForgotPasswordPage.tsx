@@ -13,28 +13,28 @@ export default function ForgotPasswordPage() {
   const [answer, setAnswer] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [newPasswordRepeat, setNewPasswordRepeat] = useState('');
-  const [status, setStatus] = useState('');
+  const [status, setStatus] = useState({ text: '', isError: false });
   const [submitting, setSubmitting] = useState(false);
 
   async function handleStep1(e: FormEvent) {
     e.preventDefault();
     const user = username.trim();
     if (!user) {
-      setStatus('❌ Enter your username');
+      setStatus({ text: 'Enter your username', isError: true });
       return;
     }
 
     setSubmitting(true);
-    setStatus('Looking up...');
+    setStatus({ text: 'Looking up...', isError: false });
 
     try {
       const result = await getResetQuestion(user);
       setQuestion(result.question);
-      setStatus('');
+      setStatus({ text: '', isError: false });
       setStep(2);
     } catch (err) {
       const message = err instanceof ApiError ? err.message : 'Could not reach the server';
-      setStatus(`❌ ${message}`);
+      setStatus({ text: message, isError: true });
     } finally {
       setSubmitting(false);
     }
@@ -47,30 +47,30 @@ export default function ForgotPasswordPage() {
     const passRepeat = newPasswordRepeat;
 
     if (!trimmedAnswer || !pass) {
-      setStatus('❌ Fill in all fields');
+      setStatus({ text: 'Fill in all fields', isError: true });
       return;
     }
     if (pass !== passRepeat) {
-      setStatus('❌ Passwords do not match');
+      setStatus({ text: 'Passwords do not match', isError: true });
       return;
     }
     if (pass.length < 6) {
-      setStatus('❌ Password must be at least 6 characters');
+      setStatus({ text: 'Password must be at least 6 characters', isError: true });
       return;
     }
 
     setSubmitting(true);
-    setStatus('Resetting...');
+    setStatus({ text: 'Resetting...', isError: false });
 
     try {
       await submitResetAnswer(username.trim(), trimmedAnswer, pass);
       navigate('/login', {
         replace: true,
-        state: { username: username.trim(), notice: '✅ Password reset! Please login.' },
+        state: { username: username.trim(), notice: 'Password reset! Please login.' },
       });
     } catch (err) {
       const message = err instanceof ApiError ? err.message : 'Could not reach the server';
-      setStatus(`❌ ${message}`);
+      setStatus({ text: message, isError: true });
     } finally {
       setSubmitting(false);
     }
@@ -87,7 +87,9 @@ export default function ForgotPasswordPage() {
         </div>
 
         <div className={styles.authTitle}>Reset Password</div>
-        {status && <div className={styles.authStatusMuted}>{status}</div>}
+        {status.text && (
+          <div className={status.isError ? styles.statusError : styles.authStatusMuted}>{status.text}</div>
+        )}
 
         {step === 1 && (
           <form className={styles.stepBox} onSubmit={handleStep1}>

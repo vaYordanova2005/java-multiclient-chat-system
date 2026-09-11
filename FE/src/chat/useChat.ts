@@ -25,6 +25,17 @@ function toneFromText(text: string): Notice['tone'] {
   return 'info';
 }
 
+// BE's sendErrorToClient (ClientHandler.java) still prefixes/suffixes reply
+// text with an emoji as the tone signal above — kept there since changing it
+// would mean adding a dedicated tone field to the wire Message type. Notices
+// are rendered with their own tone-colored styling already (see ChatArea's
+// noticeSuccess/noticeError/noticeInfo), so the emoji itself is redundant on
+// screen; strip it here rather than show it to the user.
+const EDGE_EMOJI = /^\p{Extended_Pictographic}\uFE0F?\s*|\s*\p{Extended_Pictographic}\uFE0F?$/gu;
+function stripEdgeEmoji(text: string): string {
+  return text.replace(EDGE_EMOJI, '');
+}
+
 // Content signature, not identity — the wire protocol has no stable
 // per-message id (see BE/model/Message.java) to key on. Guards against a
 // room's history genuinely arriving twice: e.g. switch A -> B -> A fast
@@ -128,7 +139,7 @@ export function useChat({ token, username, defaultTheme, onUsernameChanged, onAc
 
   const pushNotice = useCallback((text: string) => {
     const id = ++noticeSeq;
-    setNotices((prev) => [...prev, { id, text, tone: toneFromText(text) }]);
+    setNotices((prev) => [...prev, { id, text: stripEdgeEmoji(text), tone: toneFromText(text) }]);
     const timeout = setTimeout(() => {
       setNotices((prev) => prev.filter((n) => n.id !== id));
       noticeTimeouts.current.delete(id);
