@@ -177,3 +177,92 @@ describe('useChat — reconnect resync', () => {
     expect(socket.sent).toEqual([]);
   });
 });
+
+describe('useChat — friend-request reply correlation', () => {
+  it('attributes replies to the right target when two requests overlap', () => {
+    const { result, socket } = renderChat();
+
+    act(() => result.current.sendFriendRequest('bob'));
+    act(() => result.current.sendFriendRequest('carol'));
+
+    // BE answers in send order (ClientHandler processes one connection's
+    // frames serially) — bob's failure must not resolve carol's button.
+    push(socket, { type: 'error', text: '❌ User not found' });
+    expect(result.current.friendRequestResult).toMatchObject({ target: 'bob', ok: false });
+
+    push(socket, { type: 'error', text: '✅ Friend request sent to carol' });
+    expect(result.current.friendRequestResult).toMatchObject({ target: 'carol', ok: true });
+  });
+
+  it('leaves the result untouched for an error with no request outstanding', () => {
+    const { result, socket } = renderChat();
+    push(socket, { type: 'error', text: '❌ Could not block user' });
+    expect(result.current.friendRequestResult).toBeNull();
+  });
+
+  it('gives a retry for the same target a fresh seq', () => {
+    const { result, socket } = renderChat();
+
+    act(() => result.current.sendFriendRequest('bob'));
+    push(socket, { type: 'error', text: '❌ Could not send friend request' });
+    const first = result.current.friendRequestResult!;
+
+    act(() => result.current.sendFriendRequest('bob'));
+    push(socket, { type: 'error', text: '✅ Friend request sent to bob' });
+    const second = result.current.friendRequestResult!;
+
+    expect(second.target).toBe(first.target);
+    expect(second.seq).toBeGreaterThan(first.seq);
+  });
+});
+
+describe('useChat — theme seeding', () => {
+  it('re-seeds from the catalog defaults when /api/themes resolves after mount', () => {
+    const fallback = { bubbleThemeId: 'fb', backgroundThemeId: 'fb', uiThemeId: 'fb' };
+    const real = { bubbleThemeId: 'solid_electric_blue', backgroundThemeId: 'bg_solid_sky', uiThemeId: 'ui_vivid_electric_blue' };
+
+    const token = makeToken(ME);
+    const { result, rerender } = renderHook(
+      ({ defaultTheme }) =>
+        useChat({
+          token,
+          username: ME,
+          defaultTheme,
+          onUsernameChanged: vi.fn(),
+          onAccountDeleted: vi.fn(),
+          onAuthFailed: vi.fn(),
+        }),
+      { initialProps: { defaultTheme: fallback } },
+    );
+
+    expect(result.current.theme).toEqual(fallback);
+    rerender({ defaultTheme: real });
+    expect(result.current.theme).toEqual(real);
+  });
+
+  it('does not let a late catalog default overwrite the BE\'s saved preference', () => {
+    const fallback = { bubbleThemeId: 'fb', backgroundThemeId: 'fb', uiThemeId: 'fb' };
+    const saved = { bubbleThemeId: 'mine', backgroundThemeId: 'mine', uiThemeId: 'mine' };
+    const real = { bubbleThemeId: 'solid_electric_blue', backgroundThemeId: 'bg_solid_sky', uiThemeId: 'ui_vivid_electric_blue' };
+
+    const token = makeToken(ME);
+    const { result, rerender } = renderHook(
+      ({ defaultTheme }) =>
+        useChat({
+          token,
+          username: ME,
+          defaultTheme,
+          onUsernameChanged: vi.fn(),
+          onAccountDeleted: vi.fn(),
+          onAuthFailed: vi.fn(),
+        }),
+      { initialProps: { defaultTheme: fallback } },
+    );
+
+    const socket = instances[instances.length - 1]!;
+    push(socket, { type: 'theme_update', text: JSON.stringify(saved) });
+
+    rerender({ defaultTheme: real });
+    expect(result.current.theme).toEqual(saved);
+  });
+});

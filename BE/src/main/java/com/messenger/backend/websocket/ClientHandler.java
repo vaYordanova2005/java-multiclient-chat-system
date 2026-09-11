@@ -699,7 +699,7 @@ public class ClientHandler {
     // ════════════════════════════════════════════════════════════
     private void handleChatMessage(String json) {
         if (!checkRateLimit()) {
-            sendErrorToClient("Изпращате съобщения твърде бързо. Опитайте отново след малко.");
+            sendErrorToClient("❌ You are sending messages too quickly — please try again shortly.");
             return;
         }
 
@@ -707,12 +707,12 @@ public class ClientHandler {
         try {
             msg = gson.fromJson(json, Message.class);
         } catch (Exception parseEx) {
-            sendErrorToClient("Невалиден формат на съобщението.");
+            sendErrorToClient("❌ Invalid message format.");
             return;
         }
 
         if (!isValidIncomingMessage(msg)) {
-            sendErrorToClient("Съобщението не премина валидация.");
+            sendErrorToClient("❌ Message failed validation.");
             return;
         }
 

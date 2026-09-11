@@ -197,22 +197,24 @@ export default function ChatsTab({ chat, username }: { chat: ChatController; use
 function SendRequestButton({ chat, target, onSent }: { chat: ChatController; target: string; onSent?: () => void }) {
   const [state, setState] = useState<'idle' | 'pending' | 'sent'>('idle');
 
-  // chat.responseSeq only bumps on an actual reply to a request we sent
-  // (see useChat's 'error' case — every friend_request outcome, success or
-  // failure, comes back through it). Read the tone of whatever notice just
-  // landed instead of flipping to "Sent" optimistically on click, so a
-  // decline/already-pending/blocked error doesn't get reported as sent.
+  // chat.friendRequestResult carries the outcome *with the target it was
+  // for* (see useChat), rather than just "some reply landed" — two Add
+  // buttons can be waiting at once (click one user, then another before the
+  // first answers), and reading the latest notice's tone would resolve both
+  // of them off whichever reply happened to arrive first. Flipping to "Sent"
+  // only on a real success also keeps a decline/already-pending/blocked
+  // error from being reported as sent.
+  const result = chat.friendRequestResult;
   useEffect(() => {
-    if (state !== 'pending') return;
-    const last = chat.notices[chat.notices.length - 1];
-    if (last?.tone === 'success') {
+    if (state !== 'pending' || result?.target !== target) return;
+    if (result.ok) {
       setState('sent');
       onSent?.();
     } else {
       setState('idle');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chat.responseSeq]);
+  }, [result?.seq]);
 
   if (state === 'sent') return <span className={common.sentLabel}>Sent ✓</span>;
   return (

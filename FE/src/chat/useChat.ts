@@ -54,6 +54,19 @@ function messageSignature(msg: WireMessage): string {
 
 let noticeSeq = 0;
 let messageSeq = 0;
+let friendResultSeq = 0;
+
+// The outcome of one friend_request, correlated back to the user it was for
+// — the wire protocol replies to every friend_request (success or failure)
+// with a bare "error" frame carrying only display text, so a button can't
+// tell its own reply apart from an unrelated one by looking at notices.
+export interface FriendRequestResult {
+  target: string;
+  ok: boolean;
+  // Distinguishes two consecutive replies for the same target (retry after a
+  // failure) — `target` alone wouldn't change between them.
+  seq: number;
+}
 
 // Wraps WireMessage with a client-side monotonic id so list rendering has a
 // stable React key — `msg` fields alone can collide (two "message" events
@@ -97,6 +110,7 @@ export function useChat({ token, username, defaultTheme, onUsernameChanged, onAc
   const [theme, setThemeState] = useState<ThemePreferences>(defaultTheme);
   const [profile, setProfile] = useState<ProfileInfo | null>(null);
   const [notices, setNotices] = useState<Notice[]>([]);
+  const [friendRequestResult, setFriendRequestResult] = useState<FriendRequestResult | null>(null);
   // Bumped only by the two message types that are actually "a settings
   // request got a reply" (username_changed/error) — unlike `notices`, it
   // doesn't also tick over when an unrelated notice's 4s auto-dismiss timer
@@ -124,6 +138,18 @@ export function useChat({ token, username, defaultTheme, onUsernameChanged, onAc
   // after a bounded window so nothing can stay suppressed forever — an
   // exact fix needs the BE to echo back a request id, which it doesn't.
   const staleRoomsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // Targets of friend_requests we've sent but haven't seen a reply for, in
+  // send order. ClientHandler processes one connection's frames serially, so
+  // the Nth reply belongs to the Nth request — enough to attribute an outcome
+  // to the right target without a request id on the wire. An unrelated error
+  // (a rejected block, say) arriving between the two can still be mis-claimed
+  // by the head of this queue; the alternative, matching on the reply's
+  // display text, breaks on the replies that don't name the target at all
+  // ("Friend request already pending").
+  const pendingFriendRequestsRef = useRef<string[]>([]);
+  // Set once the BE has pushed this user's actual saved preference, after
+  // which `defaultTheme` must not overwrite it — see the re-seed effect below.
+  const themeFromServerRef = useRef(false);
 
   useEffect(() => {
     currentRoomRef.current = currentRoom;
@@ -134,6 +160,18 @@ export function useChat({ token, username, defaultTheme, onUsernameChanged, onAc
   useEffect(() => {
     themeRef.current = theme;
   }, [theme]);
+
+  // `theme` is seeded from the theme catalog's defaults, but ChatPage mounts
+  // this hook on its very first render — while useThemeCatalog is still
+  // serving its hardcoded FALLBACK and GET /api/themes hasn't answered yet.
+  // useState only ever reads its initial argument, so without this the seed
+  // would permanently be the FALLBACK copy rather than the BE's real
+  // defaults. Skipped entirely once anything authoritative (the user's own
+  // saved preference, or a local change) has set the theme.
+  useEffect(() => {
+    if (themeFromServerRef.current) return;
+    setThemeState(defaultTheme);
+  }, [defaultTheme]);
 
   const noticeTimeouts = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
 
@@ -267,6 +305,7 @@ export function useChat({ token, username, defaultTheme, onUsernameChanged, onAc
         case 'theme_update': {
           if (!msg.text) return;
           const prefs: ThemePreferences = JSON.parse(msg.text);
+          themeFromServerRef.current = true;
           setThemeState(prefs);
           return;
         }
@@ -313,6 +352,14 @@ export function useChat({ token, username, defaultTheme, onUsernameChanged, onAc
         }
         case 'error': {
           if (msg.text) pushNotice(msg.text);
+          const friendTarget = pendingFriendRequestsRef.current.shift();
+          if (friendTarget) {
+            setFriendRequestResult({
+              target: friendTarget,
+              ok: toneFromText(msg.text ?? '') === 'success',
+              seq: ++friendResultSeq,
+            });
+          }
           setResponseSeq((n) => n + 1);
           return;
         }
@@ -431,6 +478,10 @@ export function useChat({ token, username, defaultTheme, onUsernameChanged, onAc
       staleTimers.forEach(clearTimeout);
       staleTimers.clear();
       pendingRoomJoinRef.current = null;
+      // Replies to these can never arrive on a socket that's gone — drop
+      // them so the next connection's first error isn't attributed to a
+      // request from the previous one.
+      pendingFriendRequestsRef.current = [];
     };
   }, [token, markRoomStale, requestRoomJoin]);
 
@@ -487,7 +538,13 @@ export function useChat({ token, username, defaultTheme, onUsernameChanged, onAc
     [send],
   );
 
-  const sendFriendRequest = useCallback((user: string) => send({ type: 'friend_request', receiver: user }), [send]);
+  const sendFriendRequest = useCallback(
+    (user: string) => {
+      pendingFriendRequestsRef.current.push(user);
+      send({ type: 'friend_request', receiver: user });
+    },
+    [send],
+  );
 
   const respondFriendRequest = useCallback(
     (requester: string, accept: boolean) =>
@@ -498,6 +555,7 @@ export function useChat({ token, username, defaultTheme, onUsernameChanged, onAc
   const saveTheme = useCallback(
     (next: Partial<ThemePreferences>) => {
       const merged = { ...themeRef.current, ...next };
+      themeFromServerRef.current = true;
       themeRef.current = merged;
       setThemeState(merged);
       send({ type: 'set_theme', text: `${merged.bubbleThemeId}|${merged.backgroundThemeId}|${merged.uiThemeId}` });
@@ -541,6 +599,7 @@ export function useChat({ token, username, defaultTheme, onUsernameChanged, onAc
     theme,
     profile,
     notices,
+    friendRequestResult,
     responseSeq,
     switchToGlobal,
     openDM,
