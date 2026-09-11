@@ -1,0 +1,67 @@
+# Render Blueprint — see BE/README.md for the full env var contract these
+# services rely on, and README.md at the repo root for the FE/BE split.
+#
+# First-deploy gotcha (unavoidable with two separate Render services): each
+# service's *.onrender.com URL only exists once it has been created, so
+# ALLOWED_ORIGIN_PATTERNS (on messenger-be) and VITE_API_BASE_URL (on
+# messenger-fe) can't be filled in until after the first deploy. They're left
+# as `sync: false` placeholders below — set them from the dashboard once both
+# URLs are known, then redeploy both services. See the chat/PR notes for the
+# exact steps.
+databases:
+  - name: chatdb
+    databaseName: chatdb
+    user: chatapp_user
+    plan: free
+    region: oregon
+
+services:
+  - type: web
+    name: messenger-be
+    runtime: docker
+    rootDir: BE
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    region: oregon
+    envVars:
+      - key: DB_HOST
+        fromDatabase:
+          name: chatdb
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: chatdb
+          property: port
+      - key: DB_NAME
+        fromDatabase:
+          name: chatdb
+          property: database
+      - key: DB_USER
+        fromDatabase:
+          name: chatdb
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: chatdb
+          property: password
+      - key: AUTH_TOKEN_SECRET
+        generateValue: true
+      - key: TRUST_PROXY_HEADERS
+        value: "true"
+      - key: ALLOWED_ORIGIN_PATTERNS
+        sync: false
+
+  - type: web
+    name: messenger-fe
+    runtime: static
+    rootDir: FE
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
