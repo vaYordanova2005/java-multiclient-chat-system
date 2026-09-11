@@ -1,6 +1,7 @@
 package com.messenger.backend.websocket;
 
 import com.messenger.backend.dao.BlockedUserDAO;
+import com.messenger.backend.dao.ConversationDAO;
 import com.messenger.backend.dao.FriendshipDAO;
 import com.messenger.backend.dao.MessageDAO;
 import com.messenger.backend.dao.UserDAO;
@@ -43,15 +44,17 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private final UserDAO userDAO;
     private final FriendshipDAO friendshipDAO;
     private final BlockedUserDAO blockedUserDAO;
+    private final ConversationDAO conversationDAO;
     private final TokenService tokenService;
 
     public ChatWebSocketHandler(MessageDAO messageDAO, UserDAO userDAO,
                                  FriendshipDAO friendshipDAO, BlockedUserDAO blockedUserDAO,
-                                 TokenService tokenService) {
+                                 ConversationDAO conversationDAO, TokenService tokenService) {
         this.messageDAO = messageDAO;
         this.userDAO = userDAO;
         this.friendshipDAO = friendshipDAO;
         this.blockedUserDAO = blockedUserDAO;
+        this.conversationDAO = conversationDAO;
         this.tokenService = tokenService;
     }
 
@@ -120,7 +123,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
         ClientHandler handler = new ClientHandler(threadSafeSession, ip, username, () ->
                 decrementConnectionCount(ip),
-                messageDAO, userDAO, friendshipDAO, blockedUserDAO, tokenService
+                messageDAO, userDAO, friendshipDAO, blockedUserDAO, conversationDAO, tokenService
         );
         handlers.put(session, handler);
         handler.start();

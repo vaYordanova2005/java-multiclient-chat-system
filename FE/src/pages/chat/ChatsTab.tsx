@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChatController } from '../../chat/useChat';
-import { GLOBAL_ROOM, dmRoomKey } from '../../chat/types';
+import { GLOBAL_ROOM, dmRoomKey, groupRoomKey } from '../../chat/types';
 import Avatar from '../../components/Avatar';
+import NewGroupOverlay from './NewGroupOverlay';
 import common from './LeftPanelCommon.module.css';
 
 const SEARCH_DEBOUNCE_MS = 300;
@@ -9,6 +10,7 @@ const SEARCH_DEBOUNCE_MS = 300;
 export default function ChatsTab({ chat, username }: { chat: ChatController; username: string }) {
   const [query, setQuery] = useState('');
   const [expandedUser, setExpandedUser] = useState<string | null>(null);
+  const [newGroupOpen, setNewGroupOpen] = useState(false);
   const searchAreaRef = useRef<HTMLDivElement>(null);
 
   // Every account's own persistent color (users.color) lives on chat.friends
@@ -190,6 +192,35 @@ export default function ChatsTab({ chat, username }: { chat: ChatController; use
           ))}
         </div>
       </div>
+
+      <hr className={common.divider} />
+
+      <div>
+        <div className={common.rowSpaceBetween}>
+          <div className={common.sectionTitle}>GROUPS</div>
+          <button
+            className={common.addButton}
+            data-new-group-toggle
+            onClick={() => setNewGroupOpen((v) => !v)}
+          >
+            + New Group
+          </button>
+        </div>
+        <div className={common.list}>
+          {chat.groups.map((g) => (
+            <RoomRow
+              key={g.id}
+              active={chat.currentRoom === groupRoomKey(g.id)}
+              avatarId={undefined}
+              displayName={g.name}
+              unread={chat.unread[groupRoomKey(g.id)] ?? 0}
+              onClick={() => chat.openGroup(g.id)}
+            />
+          ))}
+        </div>
+      </div>
+
+      {newGroupOpen && <NewGroupOverlay chat={chat} onClose={() => setNewGroupOpen(false)} />}
     </div>
   );
 }

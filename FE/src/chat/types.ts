@@ -41,6 +41,12 @@ export interface DmConversationsPayload {
   avatars: Record<string, string>;
 }
 
+export interface GroupInfo {
+  id: number;
+  name: string;
+  members: string[];
+}
+
 export const GLOBAL_ROOM = 'global';
 
 export function dmRoomKey(a: string, b: string): string {
@@ -61,4 +67,22 @@ export function otherDmUser(room: string, self: string): string {
   const user2 = room.slice(second + 1);
   if (!user1 || !user2) return '';
   return user1 === self ? user2 : user1;
+}
+
+export function groupRoomKey(id: number): string {
+  return `group_${id}`;
+}
+
+// Strict digits-only check before Number() — Number() alone accepts things
+// that must NOT parse as a valid group id: '' -> 0 (so "group_" itself
+// would parse as id 0), '1e3' -> 1000 (scientific notation), ' 1' -> 1
+// (leading whitespace silently trimmed). All of those are real room
+// strings a client could send (bug or malice) and must be rejected, not
+// coerced into some other group's id.
+const GROUP_ID_PATTERN = /^[1-9]\d*$/;
+
+export function parseGroupId(room: string): number | null {
+  if (!room.startsWith('group_')) return null;
+  const raw = room.slice(6);
+  return GROUP_ID_PATTERN.test(raw) ? Number(raw) : null;
 }

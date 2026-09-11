@@ -58,3 +58,25 @@ CREATE TABLE IF NOT EXISTS blocked_users (
 );
 
 CREATE INDEX IF NOT EXISTS idx_blocked_lookup ON blocked_users(blocked);
+
+CREATE TABLE IF NOT EXISTS conversations (
+    id          SERIAL PRIMARY KEY,
+    name        VARCHAR(100) NOT NULL,
+    -- Nullable + SET NULL, не CASCADE: под flat permissions (виж
+    -- ConversationDAO) създателят няма специален статус след създаването —
+    -- полето е само информативно "кой го е направил". CASCADE тук би
+    -- изтрило цялата група и членството на всички, ако създателят изтрие
+    -- акаунта си, което наказва останалите членове за нещо извън техен
+    -- контрол.
+    created_by  VARCHAR(50) REFERENCES users(username) ON UPDATE CASCADE ON DELETE SET NULL,
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS conversation_members (
+    conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    username         VARCHAR(50) NOT NULL REFERENCES users(username) ON UPDATE CASCADE ON DELETE CASCADE,
+    joined_at        TIMESTAMPTZ DEFAULT now(),
+    PRIMARY KEY (conversation_id, username)
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversation_members_user ON conversation_members(username);

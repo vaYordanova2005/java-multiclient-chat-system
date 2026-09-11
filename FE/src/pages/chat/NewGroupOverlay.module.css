@@ -1,0 +1,121 @@
+.wrapper {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+}
+
+.panel {
+  width: 320px;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: var(--surface-card);
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: 0 5px 20px 0 rgba(122, 111, 148, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.title {
+  color: var(--text-dark);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.closeButton {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.divider {
+  border: none;
+  border-top: 1px solid rgba(122, 111, 148, 0.15);
+  margin: 0;
+}
+
+.nameInput {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--surface-card);
+  outline: 1px solid rgba(122, 111, 148, 0.25);
+  color: var(--text-dark);
+  font-size: 14px;
+}
+
+.nameInput::placeholder {
+  color: var(--text-muted);
+}
+
+.sectionTitle {
+  color: var(--lilac-6);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.friendList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.emptyHint {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.friendRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.friendRow:hover {
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.friendName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dark);
+  font-size: 14px;
+}
+
+.createButton {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--lilac-6);
+  color: var(--text-inverse);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.createButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

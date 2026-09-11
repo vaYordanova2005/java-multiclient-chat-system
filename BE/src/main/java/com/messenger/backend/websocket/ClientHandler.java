@@ -2,6 +2,7 @@ package com.messenger.backend.websocket;
 
 import com.google.gson.Gson;
 import com.messenger.backend.dao.BlockedUserDAO;
+import com.messenger.backend.dao.ConversationDAO;
 import com.messenger.backend.dao.FriendshipDAO;
 import com.messenger.backend.dao.MessageDAO;
 import com.messenger.backend.dao.UserDAO;
@@ -44,6 +45,7 @@ public class ClientHandler {
     private final UserDAO userDAO;
     private final FriendshipDAO friendshipDAO;
     private final BlockedUserDAO blockedUserDAO;
+    private final ConversationDAO conversationDAO;
     private final TokenService tokenService;
 
     private String myColor;
@@ -58,6 +60,8 @@ public class ClientHandler {
     // VALIDATION
     private static final int MAX_MESSAGE_LENGTH = 2000;
     private static final int MAX_ROOM_NAME_LENGTH = 100;
+    private static final int MAX_GROUP_NAME_LENGTH = 60;
+    private static final int MAX_GROUP_MEMBERS = 50;
 
     private final Runnable onDisconnectCallback;
 
@@ -73,7 +77,7 @@ public class ClientHandler {
                           Runnable onDisconnectCallback,
                           MessageDAO messageDAO, UserDAO userDAO,
                           FriendshipDAO friendshipDAO, BlockedUserDAO blockedUserDAO,
-                          TokenService tokenService) {
+                          ConversationDAO conversationDAO, TokenService tokenService) {
         this.session = session;
         this.onDisconnectCallback = onDisconnectCallback;
         this.clientIp = clientIp;
@@ -82,6 +86,7 @@ public class ClientHandler {
         this.userDAO = userDAO;
         this.friendshipDAO = friendshipDAO;
         this.blockedUserDAO = blockedUserDAO;
+        this.conversationDAO = conversationDAO;
         this.tokenService = tokenService;
     }
 
@@ -144,6 +149,7 @@ public class ClientHandler {
         pushBlockedList(this);
         pushProfileInfo(this);
         pushDmConversations(this);
+        pushGroupConversations(this);
     }
 
     // ISO-8601 (UTC), не "HH:mm" — виж MessageDAO/schema.sql за същата смяна
@@ -238,6 +244,40 @@ public class ClientHandler {
         DmConversationsPayload(List<String> partners, Map<String, String> avatars) {
             this.partners = partners;
             this.avatars = avatars;
+        }
+    }
+
+    // =============================================
+    // GROUP CONVERSATIONS PUSH
+    // =============================================
+
+    // Пълен, авторитетен списък с групите на target-а — не диф, същото
+    // поведение като friend_list/blocked_list по-горе. Плосък GroupSummary[]
+    // директно в text, за разлика от DmConversationsPayload — тук няма
+    // втори списък (avatars) за пренасяне отделно.
+    private void pushGroupConversations(ClientHandler target) {
+        List<ConversationDAO.GroupSummary> groups = conversationDAO.getUserGroups(target.username);
+
+        Message msg = new Message();
+        msg.type = "group_conversations";
+        msg.user = "SERVER";
+        msg.color = "#b2bec3";
+        msg.timestamp = getTime();
+        msg.text = gson.toJson(groups);
+
+        sendToClient(target, gson.toJson(msg));
+    }
+
+    // Взима вече готов members списък, вместо сам да го заявява — вика се и от
+    // leave_group с членове, взети ПРЕДИ delete-а (иначе напусналият вече не
+    // е в списъка и собственият му изглед никога не се опреснява), и от
+    // create/add/rename с членове, взети СЛЕД промяната.
+    private void pushGroupConversationsToOnlineMembers(List<String> members) {
+        synchronized (lock) {
+            for (String member : members) {
+                ClientHandler h = onlineUsers.get(member);
+                if (h != null) pushGroupConversations(h);
+            }
         }
     }
 
@@ -427,6 +467,20 @@ public class ClientHandler {
         sendHistoryToClient(gson.toJson(err));
     }
 
+    // Отделен тип от "error" нарочно — виж plan за пълния разбор. Кратко:
+    // "error" вече се консумира от pendingFriendRequestsRef на FE-то
+    // (ordering-based correlation), а room_join за празна нова група никога
+    // не получава отговор, който да resolve-не pendingRoomJoinRef — така
+    // "join в процес" не е надежден сигнал за "тая грешка е за тоя join".
+    // room в самия frame прави корелацията еднозначна: FE проверява
+    // msg.room === currentRoom, без гадаене по ред.
+    private void sendJoinDenied(String room, String text) {
+        Message denied = new Message("join_denied", "SERVER", "#e74c3c", text);
+        denied.room = room;
+        denied.timestamp = getTime();
+        sendHistoryToClient(gson.toJson(denied));
+    }
+
     private boolean isValidIncomingMessage(Message msg) {
         if (msg == null || msg.type == null) return false;
 
@@ -476,8 +530,41 @@ public class ClientHandler {
             case "delete_account":
                 return msg.text != null && !msg.text.isEmpty();
 
+            case "create_group":
+                // Дълбоката валидация (parse, member limit, приятелство) е в
+                // handleChatMessage — тук само таван на суровия текст, преди
+                // Gson изобщо да го пипне.
+                return msg.text != null && !msg.text.isEmpty() && msg.text.length() <= MAX_MESSAGE_LENGTH;
+
+            case "add_group_member":
+                return msg.room != null && msg.room.startsWith("group_")
+                        && msg.receiver != null && !msg.receiver.trim().isEmpty();
+
+            case "rename_group":
+                return msg.room != null && msg.room.startsWith("group_")
+                        && msg.text != null && !msg.text.trim().isEmpty();
+
+            case "leave_group":
+                return msg.room != null && msg.room.startsWith("group_");
+
             default:
                 return false;
+        }
+    }
+
+    // Връща null за всичко, което не изглежда като валиден group room —
+    // липсва "group_" префикс, нечислов суфикс, или id <= 0 ("group_0",
+    // "group_-5" парсват като числа, но никога не са реален id, тъй като
+    // SERIAL стартира от 1). isMember и без това би отхвърлил такъв id
+    // (няма съвпадащ ред), но връщането на null тук по-рано дава по-точно
+    // съобщение за грешка ("no such group" вместо подвеждащо "not a member").
+    private Integer parseGroupId(String room) {
+        if (room == null || !room.startsWith("group_")) return null;
+        try {
+            int id = Integer.parseInt(room.substring("group_".length()));
+            return id > 0 ? id : null;
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 
@@ -718,8 +805,18 @@ public class ClientHandler {
 
         switch (msg.type) {
             case "room_join", "join" -> {
-                this.currentRoom = (msg.room != null && !msg.room.isEmpty())
+                String targetRoom = (msg.room != null && !msg.room.isEmpty())
                         ? msg.room : "global";
+
+                if (targetRoom.startsWith("group_")) {
+                    Integer gid = parseGroupId(targetRoom);
+                    if (gid == null || !conversationDAO.isMember(gid, username)) {
+                        sendJoinDenied(targetRoom, "❌ You are not a member of this group.");
+                        break;
+                    }
+                }
+
+                this.currentRoom = targetRoom;
                 loadRoomHistory(this.currentRoom);
             }
 
@@ -727,13 +824,44 @@ public class ClientHandler {
                 String targetRoom = (msg.room != null && !msg.room.isEmpty())
                         ? msg.room : this.currentRoom;
 
-                Message out = new Message("message", username, myColor, msg.text);
-                out.timestamp = getTime();
-                out.room = targetRoom;
-                out.avatarId = myAvatarId;
+                if (targetRoom.startsWith("group_")) {
+                    Integer gid = parseGroupId(targetRoom);
+                    if (gid == null || !conversationDAO.isMember(gid, username)) {
+                        sendErrorToClient("❌ You are not a member of this group.");
+                        break;
+                    }
 
-                messageDAO.saveMessage(out);
-                broadcastToRoom(targetRoom, gson.toJson(out));
+                    Message out = new Message("message", username, myColor, msg.text);
+                    out.timestamp = getTime();
+                    out.room = targetRoom;
+                    out.avatarId = myAvatarId;
+                    messageDAO.saveMessage(out);
+
+                    // Директен fan-out към всеки online член — НЕ broadcastToRoom,
+                    // което стига само до клиенти, чийто currentRoom СЕГА съвпада
+                    // (виж plan: точно това чупи unread badge-овете за членове,
+                    // гледащи друга стая в момента на изпращане).
+                    String jsonOut = gson.toJson(out);
+                    List<String> members = conversationDAO.getMembers(gid);
+                    synchronized (lock) {
+                        for (String member : members) {
+                            // Block филтрира само LIVE доставката тук, не историята
+                            // (loadRoomHistory не филтрира по block) — известен gap,
+                            // виж plan.
+                            if (blockedUserDAO.isBlockedEitherWay(username, member)) continue;
+                            ClientHandler h = onlineUsers.get(member);
+                            if (h != null) h.sendRaw(jsonOut);
+                        }
+                    }
+                } else {
+                    Message out = new Message("message", username, myColor, msg.text);
+                    out.timestamp = getTime();
+                    out.room = targetRoom;
+                    out.avatarId = myAvatarId;
+
+                    messageDAO.saveMessage(out);
+                    broadcastToRoom(targetRoom, gson.toJson(out));
+                }
             }
 
             case "dm" -> {
@@ -774,7 +902,114 @@ public class ClientHandler {
             case "block_user"           -> handleBlockUser(msg);
             case "unblock_user"         -> handleUnblockUser(msg);
             case "delete_account"       -> handleDeleteAccount(msg);
+
+            case "create_group"     -> handleCreateGroup(msg);
+            case "add_group_member" -> handleAddGroupMember(msg);
+            case "rename_group"     -> handleRenameGroup(msg);
+            case "leave_group"      -> handleLeaveGroup(msg);
         }
+    }
+
+    // =============================================
+    // GROUP MESSAGE HANDLERS
+    // =============================================
+
+    // members идва от FE-то като JSON, опаковано в msg.text — същата
+    // техника като dm_conversations/friend_list в обратна посока (виж plan),
+    // затова Message.java не се пипа заради едно ново поле.
+    private static class CreateGroupRequest {
+        String name;
+        List<String> members;
+    }
+
+    private void handleCreateGroup(Message msg) {
+        CreateGroupRequest req;
+        try {
+            req = gson.fromJson(msg.text, CreateGroupRequest.class);
+        } catch (Exception parseEx) {
+            req = null;
+        }
+
+        if (req == null || req.name == null) {
+            sendErrorToClient("❌ Invalid group request.");
+            return;
+        }
+
+        String name = req.name.trim();
+        if (name.isEmpty() || name.length() > MAX_GROUP_NAME_LENGTH) {
+            sendErrorToClient("❌ Invalid group name.");
+            return;
+        }
+
+        // Self-strip ПРЕДИ приятелство проверката — friendshipDAO.areFriends(u, u)
+        // никога не е true (няма self-friendship ред), а сървърът и без това
+        // винаги добавя създателя отделно в ConversationDAO.createGroup.
+        Set<String> members = new LinkedHashSet<>(req.members != null ? req.members : List.of());
+        members.remove(username);
+
+        if (members.isEmpty()) {
+            sendErrorToClient("❌ Select at least one member.");
+            return;
+        }
+        if (members.size() > MAX_GROUP_MEMBERS) {
+            sendErrorToClient("❌ Too many members — max " + MAX_GROUP_MEMBERS + ".");
+            return;
+        }
+        for (String member : members) {
+            if (!friendshipDAO.areFriends(username, member)) {
+                sendErrorToClient("❌ You can only add friends to a group.");
+                return;
+            }
+        }
+
+        int id = conversationDAO.createGroup(name, username, new ArrayList<>(members));
+        if (id < 0) {
+            sendErrorToClient("❌ Could not create group.");
+            return;
+        }
+
+        pushGroupConversationsToOnlineMembers(conversationDAO.getMembers(id));
+    }
+
+    private void handleAddGroupMember(Message msg) {
+        Integer gid = parseGroupId(msg.room);
+        String target = msg.receiver.trim();
+
+        if (gid == null || !conversationDAO.isMember(gid, username)) {
+            sendErrorToClient("❌ You are not a member of this group.");
+        } else if (!friendshipDAO.areFriends(username, target)) {
+            sendErrorToClient("❌ You can only add friends to a group.");
+        } else if (conversationDAO.isMember(gid, target)) {
+            sendErrorToClient("❌ " + target + " is already in this group.");
+        } else {
+            conversationDAO.addMember(gid, target);
+            pushGroupConversationsToOnlineMembers(conversationDAO.getMembers(gid));
+        }
+    }
+
+    private void handleRenameGroup(Message msg) {
+        Integer gid = parseGroupId(msg.room);
+        String name = msg.text.trim();
+
+        if (gid == null || !conversationDAO.isMember(gid, username)) {
+            sendErrorToClient("❌ You are not a member of this group.");
+        } else if (name.isEmpty() || name.length() > MAX_GROUP_NAME_LENGTH) {
+            sendErrorToClient("❌ Invalid group name.");
+        } else {
+            conversationDAO.renameGroup(gid, name);
+            pushGroupConversationsToOnlineMembers(conversationDAO.getMembers(gid));
+        }
+    }
+
+    private void handleLeaveGroup(Message msg) {
+        Integer gid = parseGroupId(msg.room);
+        if (gid == null || !conversationDAO.isMember(gid, username)) return;
+
+        // Members ПРЕДИ leaveGroup — след delete-а напусналият вече не е в
+        // списъка и собственият му изглед никога не би се опреснил (виж plan).
+        List<String> membersBeforeLeave = conversationDAO.getMembers(gid);
+        conversationDAO.leaveGroup(gid, username);
+        pushGroupConversationsToOnlineMembers(membersBeforeLeave);
     }
 
     // =============================================
