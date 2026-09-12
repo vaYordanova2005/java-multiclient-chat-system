@@ -672,6 +672,59 @@ public class UserDAO {
         try (Connection conn = getConnection()) {
             conn.setAutoCommit(false);
 
+            // conversation_members.username is ON DELETE CASCADE, so deleting the
+            // users row below would silently drop this account's group memberships —
+            // but ConversationDAO.leaveGroup's "last member out -> delete the
+            // conversation + its messages" logic lives entirely in application code,
+            // not in the CASCADE. Without doing the same cleanup here, a group whose
+            // last remaining member deletes their account leaves an orphaned
+            // conversations row and its full message history behind forever, with no
+            // member left to ever leaveGroup() it away. Mirrors leaveGroup exactly,
+            // just batched over every group this account is in, same transaction as
+            // the account delete so it can't race a concurrent addMember.
+            List<Integer> groupIds = new ArrayList<>();
+            try (PreparedStatement selectGroups = conn.prepareStatement(
+                    "SELECT conversation_id FROM conversation_members WHERE username = ?")) {
+                selectGroups.setString(1, username);
+                try (ResultSet rs = selectGroups.executeQuery()) {
+                    while (rs.next()) groupIds.add(rs.getInt(1));
+                }
+            }
+
+            if (!groupIds.isEmpty()) {
+                try (PreparedStatement delMember = conn.prepareStatement(
+                        "DELETE FROM conversation_members WHERE conversation_id = ? AND username = ?")) {
+                    for (int gid : groupIds) {
+                        delMember.setInt(1, gid);
+                        delMember.setString(2, username);
+                        delMember.addBatch();
+                    }
+                    delMember.executeBatch();
+                }
+
+                try (PreparedStatement countRemaining = conn.prepareStatement(
+                        "SELECT COUNT(*) FROM conversation_members WHERE conversation_id = ?");
+                     PreparedStatement delConversation = conn.prepareStatement(
+                        "DELETE FROM conversations WHERE id = ?");
+                     PreparedStatement delMessages = conn.prepareStatement(
+                        "DELETE FROM messages WHERE room = ?")) {
+                    for (int gid : groupIds) {
+                        countRemaining.setInt(1, gid);
+                        int remaining;
+                        try (ResultSet rs = countRemaining.executeQuery()) {
+                            rs.next();
+                            remaining = rs.getInt(1);
+                        }
+                        if (remaining == 0) {
+                            delConversation.setInt(1, gid);
+                            delConversation.executeUpdate();
+                            delMessages.setString(1, "group_" + gid);
+                            delMessages.executeUpdate();
+                        }
+                    }
+                }
+            }
+
             try (PreparedStatement delFriendships = conn.prepareStatement(
                     "DELETE FROM friendships WHERE user_a = ? OR user_b = ?")) {
                 delFriendships.setString(1, username);

@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChatController } from '../../chat/useChat';
-import type { GroupInfo } from '../../chat/types';
+import { MAX_GROUP_NAME_LENGTH, type GroupInfo } from '../../chat/types';
 import styles from './GroupHeaderMenu.module.css';
-
-const MAX_GROUP_NAME_LENGTH = 60;
 
 export default function GroupHeaderMenu({
   chat,

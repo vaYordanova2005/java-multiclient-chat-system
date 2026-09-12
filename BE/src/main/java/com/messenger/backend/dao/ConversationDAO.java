@@ -188,7 +188,7 @@ public class ConversationDAO {
         }
     }
 
-    public void renameGroup(int conversationId, String name) {
+    public boolean renameGroup(int conversationId, String name) {
         String sql = "UPDATE conversations SET name = ? WHERE id = ?";
 
         try (Connection conn = getConnection();
@@ -197,9 +197,11 @@ public class ConversationDAO {
             stmt.setString(1, name);
             stmt.setInt(2, conversationId);
             stmt.executeUpdate();
+            return true;
 
         } catch (SQLException e) {
             log.error("Database error in ConversationDAO", e);
+            return false;
         }
     }
 

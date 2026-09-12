@@ -28,6 +28,7 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
+import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -206,6 +207,155 @@ class WebSocketProtocolIT {
         } catch (Exception expected) {
             // TokenAuthHandshakeInterceptor rejects the handshake (401) — the connect
             // call itself throws an exception, which is exactly what we're testing here.
+        }
+    }
+
+    @Test
+    @Timeout(30)
+    void joiningAGroupYouAreNotAMemberOfIsDenied() throws Exception {
+        restTemplate = new TestRestTemplate();
+        String baseUrl = "http://localhost:" + port;
+
+        String member = "member" + (System.nanoTime() % 100_000);
+        String outsider = "outsider" + (System.nanoTime() % 100_000);
+        registerUser(baseUrl, member);
+        String outsiderToken = registerAndLogin(baseUrl, outsider);
+
+        // Group has only `member` in it — `outsider` never joined.
+        int groupId = insertGroupConversation("test group", member, List.of(member));
+        String room = "group_" + groupId;
+
+        RecordingHandler handler = new RecordingHandler();
+        StandardWebSocketClient client = new StandardWebSocketClient();
+        WebSocketSession session = client.execute(handler, headersWithToken(outsiderToken),
+                URI.create("ws://localhost:" + port + "/ws")).get(10, TimeUnit.SECONDS);
+
+        try {
+            Message join = new Message();
+            join.type = "room_join";
+            join.room = room;
+            session.sendMessage(new TextMessage(gson.toJson(join)));
+
+            Message denied = null;
+            for (int i = 0; i < 25 && denied == null; i++) {
+                Message parsed = gson.fromJson(handler.next(), Message.class);
+                if ("join_denied".equals(parsed.type) && room.equals(parsed.room)) {
+                    denied = parsed;
+                }
+            }
+
+            assertNotNull(denied, "non-member join was not denied for room " + room);
+        } finally {
+            session.close();
+        }
+    }
+
+    @Test
+    @Timeout(30)
+    void groupMessageReachesAnOnlineMemberSittingInAnotherRoom() throws Exception {
+        restTemplate = new TestRestTemplate();
+        String baseUrl = "http://localhost:" + port;
+
+        String userA = "membera" + (System.nanoTime() % 100_000);
+        String userB = "memberb" + (System.nanoTime() % 100_000);
+        String tokenA = registerAndLogin(baseUrl, userA);
+        String tokenB = registerAndLogin(baseUrl, userB);
+
+        int groupId = insertGroupConversation("both group", userA, List.of(userA, userB));
+        String room = "group_" + groupId;
+
+        RecordingHandler handlerA = new RecordingHandler();
+        RecordingHandler handlerB = new RecordingHandler();
+        StandardWebSocketClient client = new StandardWebSocketClient();
+
+        // A never joins `room` — stays on the default "global" room, exactly the
+        // scenario broadcastToRoom would miss (see ClientHandler's "message" case:
+        // fan-out is deliberately NOT gated on the recipient's currentRoom).
+        WebSocketSession sessionA = client.execute(handlerA, headersWithToken(tokenA),
+                URI.create("ws://localhost:" + port + "/ws")).get(10, TimeUnit.SECONDS);
+        WebSocketSession sessionB = client.execute(handlerB, headersWithToken(tokenB),
+                URI.create("ws://localhost:" + port + "/ws")).get(10, TimeUnit.SECONDS);
+
+        try {
+            Message joinB = new Message();
+            joinB.type = "room_join";
+            joinB.room = room;
+            sessionB.sendMessage(new TextMessage(gson.toJson(joinB)));
+
+            Message groupMsg = new Message();
+            groupMsg.type = "message";
+            groupMsg.room = room;
+            groupMsg.text = "hello group from B";
+            sessionB.sendMessage(new TextMessage(gson.toJson(groupMsg)));
+
+            Message received = null;
+            for (int i = 0; i < 30 && received == null; i++) {
+                Message parsed = gson.fromJson(handlerA.next(), Message.class);
+                if ("message".equals(parsed.type) && room.equals(parsed.room)) {
+                    received = parsed;
+                }
+            }
+
+            assertNotNull(received, "group message never reached member A sitting in another room");
+            assertEquals("hello group from B", received.text);
+            assertEquals(userB, received.user);
+        } finally {
+            sessionA.close();
+            sessionB.close();
+        }
+    }
+
+    private void registerUser(String baseUrl, String username) {
+        ResponseEntity<Void> registerResponse = restTemplate.postForEntity(
+                baseUrl + "/api/auth/register",
+                new AuthController.RegisterRequest(username, "password123", "Q?", "a"),
+                Void.class);
+        assertEquals(200, registerResponse.getStatusCode().value());
+    }
+
+    private String registerAndLogin(String baseUrl, String username) {
+        registerUser(baseUrl, username);
+
+        ResponseEntity<AuthController.LoginResponse> loginResponse = restTemplate.postForEntity(
+                baseUrl + "/api/auth/login",
+                new AuthController.LoginRequest(username, "password123"),
+                AuthController.LoginResponse.class);
+        assertEquals(200, loginResponse.getStatusCode().value());
+        String token = loginResponse.getBody().token();
+        assertNotNull(token);
+        return token;
+    }
+
+    // Bypasses the WS "create_group" handler entirely — inserts straight into
+    // conversations/conversation_members, mirroring ConversationDAO.createGroup,
+    // so these tests can set up membership without depending on that handler's
+    // own correctness.
+    private int insertGroupConversation(String name, String createdBy, List<String> members) throws Exception {
+        try (Connection conn = DriverManager.getConnection(
+                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())) {
+
+            int id;
+            try (java.sql.PreparedStatement ps = conn.prepareStatement(
+                    "INSERT INTO conversations (name, created_by) VALUES (?, ?) RETURNING id")) {
+                ps.setString(1, name);
+                ps.setString(2, createdBy);
+                try (java.sql.ResultSet rs = ps.executeQuery()) {
+                    rs.next();
+                    id = rs.getInt(1);
+                }
+            }
+
+            try (java.sql.PreparedStatement ps = conn.prepareStatement(
+                    "INSERT INTO conversation_members (conversation_id, username) VALUES (?, ?)")) {
+                for (String member : members) {
+                    ps.setInt(1, id);
+                    ps.setString(2, member);
+                    ps.addBatch();
+                }
+                ps.executeBatch();
+            }
+
+            return id;
         }
     }
 

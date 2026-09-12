@@ -72,3 +72,7 @@ export function otherDmUser(room: string, self: string): string {
 export function groupRoomKey(id: number): string {
   return `group_${id}`;
 }
+
+// Mirrors ClientHandler.MAX_GROUP_NAME_LENGTH on the BE — kept in one place on
+// the FE side instead of duplicated per component.
+export const MAX_GROUP_NAME_LENGTH = 60;

@@ -272,12 +272,22 @@ public class ClientHandler {
     // called from leave_group with members taken BEFORE the delete (otherwise
     // the leaver is no longer in the list and their own view never refreshes),
     // and from create/add/rename with members taken AFTER the change.
+    //
+    // The handler snapshot is taken under `lock`, but pushGroupConversations
+    // itself (a DB read + a socket send per member) runs OUTSIDE it. `lock` is
+    // the same monitor broadcastToRoom/connect/disconnect use — holding it
+    // across a DB round-trip per member would stall the entire chat for
+    // everyone else while a big group's conversations are pushed out.
     private void pushGroupConversationsToOnlineMembers(List<String> members) {
+        List<ClientHandler> handlers = new ArrayList<>();
         synchronized (lock) {
             for (String member : members) {
                 ClientHandler h = onlineUsers.get(member);
-                if (h != null) pushGroupConversations(h);
+                if (h != null) handlers.add(h);
             }
+        }
+        for (ClientHandler h : handlers) {
+            pushGroupConversations(h);
         }
     }
 
@@ -567,7 +577,7 @@ public class ClientHandler {
     // parsers quietly drift apart).
     private static final java.util.regex.Pattern GROUP_ID_PATTERN = java.util.regex.Pattern.compile("^[1-9]\\d*$");
 
-    private Integer parseGroupId(String room) {
+    private static Integer parseGroupId(String room) {
         if (room == null || !room.startsWith("group_")) return null;
         String raw = room.substring("group_".length());
         if (!GROUP_ID_PATTERN.matcher(raw).matches()) return null;
@@ -851,14 +861,16 @@ public class ClientHandler {
                     // which only reaches clients whose currentRoom matches RIGHT NOW
                     // (see plan: this is exactly what breaks unread badges for members
                     // looking at a different room at the moment of sending).
+                    //
+                    // Blocking is DM-scoped only (Telegram's model) — it is NOT applied
+                    // here. It used to filter live delivery only, while loadRoomHistory
+                    // never filtered by block, so a blocked pair would vanish from each
+                    // other's live view but reappear on reload/join. Group membership is
+                    // the only gate; block still applies to "dm".
                     String jsonOut = gson.toJson(out);
                     List<String> members = conversationDAO.getMembers(gid);
                     synchronized (lock) {
                         for (String member : members) {
-                            // Block only filters the LIVE delivery here, not the history
-                            // (loadRoomHistory doesn't filter by block) — known gap,
-                            // see plan.
-                            if (blockedUserDAO.isBlockedEitherWay(username, member)) continue;
                             ClientHandler h = onlineUsers.get(member);
                             if (h != null) h.sendRaw(jsonOut);
                         }
@@ -961,7 +973,12 @@ public class ClientHandler {
             sendErrorToClient("❌ Select at least one member.");
             return;
         }
-        if (members.size() > MAX_GROUP_MEMBERS) {
+        // +1 for the creator, who is added separately below — MAX_GROUP_MEMBERS is a
+        // total-member cap, the same one handleAddGroupMember enforces via
+        // getMembers(gid).size() >= MAX_GROUP_MEMBERS. Without the +1 here, a group
+        // could be CREATED with 51 total members yet already read as "full" the
+        // moment someone tries to add a 51st.
+        if (members.size() + 1 > MAX_GROUP_MEMBERS) {
             sendErrorToClient("❌ Too many members — max " + MAX_GROUP_MEMBERS + ".");
             return;
         }
@@ -993,8 +1010,9 @@ public class ClientHandler {
             sendErrorToClient("❌ " + target + " is already in this group.");
         } else if (conversationDAO.getMembers(gid).size() >= MAX_GROUP_MEMBERS) {
             sendErrorToClient("❌ Group is full — max " + MAX_GROUP_MEMBERS + " members.");
+        } else if (!conversationDAO.addMember(gid, target)) {
+            sendErrorToClient("❌ Could not add member.");
         } else {
-            conversationDAO.addMember(gid, target);
             pushGroupConversationsToOnlineMembers(conversationDAO.getMembers(gid));
         }
     }
@@ -1007,8 +1025,9 @@ public class ClientHandler {
             sendErrorToClient("❌ You are not a member of this group.");
         } else if (name.isEmpty() || name.length() > MAX_GROUP_NAME_LENGTH) {
             sendErrorToClient("❌ Invalid group name.");
+        } else if (!conversationDAO.renameGroup(gid, name)) {
+            sendErrorToClient("❌ Could not rename group.");
         } else {
-            conversationDAO.renameGroup(gid, name);
             pushGroupConversationsToOnlineMembers(conversationDAO.getMembers(gid));
         }
     }

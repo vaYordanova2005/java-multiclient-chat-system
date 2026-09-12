@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChatController } from '../../chat/useChat';
+import { MAX_GROUP_NAME_LENGTH } from '../../chat/types';
 import Avatar from '../../components/Avatar';
 import styles from './NewGroupOverlay.module.css';
-
-const MAX_GROUP_NAME_LENGTH = 60;
 
 export default function NewGroupOverlay({ chat, onClose }: { chat: ChatController; onClose: () => void }) {
   const [name, setName] = useState('');
