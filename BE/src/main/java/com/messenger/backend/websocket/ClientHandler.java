@@ -998,6 +998,27 @@ public class ClientHandler {
         pushGroupConversationsToOnlineMembers(conversationDAO.getMembers(id));
     }
 
+    // Persisted (so it shows up in loadRoomHistory for anyone who joins/reloads
+    // later, not just live viewers) and fanned out exactly like a "message" to
+    // the group (see the "message" case in handleChatMessage) — same reason:
+    // a member looking at a different room right now still needs to see it
+    // once they open this one, not just the ones currently sitting in it. This
+    // is what turns "the group just changed, no idea why" into an actual log.
+    private void sendGroupSystemMessage(int gid, List<String> members, String text) {
+        Message sys = new Message("system", "SERVER", "#b2bec3", text);
+        sys.timestamp = getTime();
+        sys.room = "group_" + gid;
+        messageDAO.saveMessage(sys);
+
+        String jsonOut = gson.toJson(sys);
+        synchronized (lock) {
+            for (String member : members) {
+                ClientHandler h = onlineUsers.get(member);
+                if (h != null) h.sendRaw(jsonOut);
+            }
+        }
+    }
+
     private void handleAddGroupMember(Message msg) {
         Integer gid = parseGroupId(msg.room);
         String target = msg.receiver.trim();
@@ -1013,7 +1034,9 @@ public class ClientHandler {
         } else if (!conversationDAO.addMember(gid, target)) {
             sendErrorToClient("❌ Could not add member.");
         } else {
-            pushGroupConversationsToOnlineMembers(conversationDAO.getMembers(gid));
+            List<String> members = conversationDAO.getMembers(gid);
+            pushGroupConversationsToOnlineMembers(members);
+            sendGroupSystemMessage(gid, members, username + " added " + target + " to the group.");
         }
     }
 
@@ -1028,7 +1051,9 @@ public class ClientHandler {
         } else if (!conversationDAO.renameGroup(gid, name)) {
             sendErrorToClient("❌ Could not rename group.");
         } else {
-            pushGroupConversationsToOnlineMembers(conversationDAO.getMembers(gid));
+            List<String> members = conversationDAO.getMembers(gid);
+            pushGroupConversationsToOnlineMembers(members);
+            sendGroupSystemMessage(gid, members, username + " renamed the group to \"" + name + "\".");
         }
     }
 
@@ -1048,6 +1073,16 @@ public class ClientHandler {
             return;
         }
         pushGroupConversationsToOnlineMembers(membersBeforeLeave);
+
+        // Only if the group is still standing — if this was the last member,
+        // leaveGroup() already disbanded it (deleted conversations + messages,
+        // see ConversationDAO.leaveGroup), and there's no room left to write a
+        // "left the group" message into, nor anyone left to read it.
+        List<String> remainingMembers = new ArrayList<>(membersBeforeLeave);
+        remainingMembers.remove(username);
+        if (!remainingMembers.isEmpty()) {
+            sendGroupSystemMessage(gid, remainingMembers, username + " left the group.");
+        }
     }
 
     // =============================================
