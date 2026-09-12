@@ -1,4 +1,4 @@
-# Java Multiclient Chat System
+# Multiclient Chat System
 
 Chat app with public rooms, direct messages, group chats, friend requests,
 blocking, avatars, and customizable themes — rebuilt from a JavaFX desktop
