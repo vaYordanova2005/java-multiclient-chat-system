@@ -122,7 +122,15 @@ public class ConversationDAO {
 
             stmt.setInt(1, conversationId);
             stmt.setString(2, username);
-            return stmt.executeUpdate() > 0;
+            // ON CONFLICT DO NOTHING means 0 rows affected both on a genuine conflict
+            // (already a member) and on a race where two callers add the same person
+            // at the same time — both leave the invariant "username is a member"
+            // satisfied, which is what the caller actually asked for. Only a thrown
+            // SQLException is a real failure here; executeUpdate()'s return count
+            // is not, unlike renameGroup below where a 0-row UPDATE has no such
+            // benign explanation.
+            stmt.executeUpdate();
+            return true;
 
         } catch (SQLException e) {
             log.error("Database error in ConversationDAO", e);
@@ -196,8 +204,12 @@ public class ConversationDAO {
 
             stmt.setString(1, name);
             stmt.setInt(2, conversationId);
-            stmt.executeUpdate();
-            return true;
+            // Unlike addMember's ON CONFLICT DO NOTHING above, there's no benign
+            // reason for this UPDATE to affect 0 rows — it means the conversation
+            // was disbanded (its last member left) between the caller's isMember
+            // check and this statement, so report it as a failure instead of a
+            // silent no-op success.
+            return stmt.executeUpdate() > 0;
 
         } catch (SQLException e) {
             log.error("Database error in ConversationDAO", e);
