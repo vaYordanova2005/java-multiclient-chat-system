@@ -1039,7 +1039,14 @@ public class ClientHandler {
         // Members BEFORE leaveGroup — after the delete, the leaver is no longer
         // in the list and their own view would never refresh (see plan).
         List<String> membersBeforeLeave = conversationDAO.getMembers(gid);
-        conversationDAO.leaveGroup(gid, username);
+        if (!conversationDAO.leaveGroup(gid, username)) {
+            // The FE already optimistically switches away from the room on
+            // leave_group — without this error, a failed transaction is
+            // invisible: the group just reappears on the next
+            // group_conversations push with no explanation.
+            sendErrorToClient("❌ Could not leave group.");
+            return;
+        }
         pushGroupConversationsToOnlineMembers(membersBeforeLeave);
     }
 

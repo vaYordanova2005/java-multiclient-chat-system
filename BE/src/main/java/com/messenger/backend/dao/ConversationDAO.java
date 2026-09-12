@@ -143,7 +143,7 @@ public class ConversationDAO {
     // would race against a concurrent addMember landing between the count
     // and the conversations delete (see plan — a known compromise, avoided
     // precisely by this transaction).
-    public void leaveGroup(int conversationId, String username) {
+    public boolean leaveGroup(int conversationId, String username) {
         String deleteMember = "DELETE FROM conversation_members WHERE conversation_id = ? AND username = ?";
         String countRemaining = "SELECT COUNT(*) FROM conversation_members WHERE conversation_id = ?";
         String deleteConversation = "DELETE FROM conversations WHERE id = ?";
@@ -187,10 +187,12 @@ public class ConversationDAO {
             }
 
             conn.commit();
+            return true;
 
         } catch (SQLException e) {
             log.error("Database error in ConversationDAO", e);
             rollbackQuietly(conn);
+            return false;
         } finally {
             closeQuietly(conn);
         }

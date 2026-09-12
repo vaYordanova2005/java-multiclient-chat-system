@@ -513,12 +513,16 @@ public class UserDAO {
                 return UsernameChangeResult.SUCCESS;
 
             } catch (SQLException e) {
-                conn.rollback();
-                if ("23505".equals(e.getSQLState())) {
-                    return UsernameChangeResult.ALREADY_TAKEN;
+                // Log (when it's a real error, not the expected ALREADY_TAKEN
+                // conflict) BEFORE rolling back — if rollback() itself throws, this
+                // guarantees the original exception is still on record instead of
+                // being displaced by the rollback failure before it's ever logged.
+                boolean alreadyTaken = "23505".equals(e.getSQLState());
+                if (!alreadyTaken) {
+                    log.error("Database error while changing username", e);
                 }
-                log.error("Database error while changing username", e);
-                return UsernameChangeResult.ERROR;
+                conn.rollback();
+                return alreadyTaken ? UsernameChangeResult.ALREADY_TAKEN : UsernameChangeResult.ERROR;
             }
 
         } catch (SQLException e) {
@@ -760,8 +764,10 @@ public class UserDAO {
                 }
 
             } catch (SQLException e) {
-                conn.rollback();
+                // Log BEFORE rolling back — see changeUsername's catch above for why:
+                // a throwing rollback() must not cost us the original exception.
                 log.error("Database error in UserDAO", e);
+                conn.rollback();
                 return false;
             }
 
