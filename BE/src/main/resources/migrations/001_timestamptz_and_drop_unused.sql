@@ -25,8 +25,13 @@ ALTER TABLE messages
 ALTER TABLE messages
     ALTER COLUMN timestamp SET DEFAULT now();
 
--- Not a single line of Java code reads or writes these — see the code review.
-DROP TABLE IF EXISTS conversations;
+-- Not a single line of Java code read or wrote this at the time — see the code review.
+-- UPDATE: the original version of this migration also dropped `conversations`.
+-- That table was genuinely dead when this file was written, but commit
+-- 10c4209 ("Add group chats: real conversations, N-party membership, live
+-- sync") later made it load-bearing for group chats (see ConversationDAO.java).
+-- The DROP for `conversations` was removed retroactively — do NOT re-add it,
+-- running it against the live database would destroy all group chat data.
 DROP TABLE IF EXISTS user_status;
 
 COMMIT;
