@@ -1,5 +1,9 @@
 # BE (backend) — Spring Boot
 
+> For a map of this module rather than its details, see
+> [`docs/backend.md`](../docs/backend.md); for how it fits with the FE and
+> the database, [`docs/architecture.md`](../docs/architecture.md).
+
 A Spring Boot Maven port of the reusable, non-UI server code from
 [`../legacy`](../legacy): the WebSocket handler, DAOs, DB schema, and the
 `Message`/`ChatTheme` models. Nothing here depends on JavaFX.
@@ -30,10 +34,13 @@ Login/register/password-reset are now plain REST endpoints
 
 The `token` from `/api/auth/login` is a signed, stateless, 24h-expiry token
 (`security/TokenService.java`, HMAC-SHA256 — no server-side session
-storage). The FE passes it back as a query parameter when opening the
-WebSocket: **`ws://host/ws?token=<token>`**. `TokenAuthHandshakeInterceptor`
-verifies it *during the handshake* — a missing/invalid/expired token gets
-the handshake itself rejected with `401`, the connection never opens.
+storage). The FE passes it back as the WebSocket **subprotocol** when
+opening the socket (`new WebSocket(url, [token])`, which the browser sends
+as the `Sec-WebSocket-Protocol` request header) — not as a `?token=` query
+parameter; see "The token travels as a subprotocol, not in the URL" below.
+`TokenAuthHandshakeInterceptor` verifies it *during the handshake* — a
+missing/invalid/expired token gets the handshake itself rejected with
+`401`, the connection never opens.
 `ChatWebSocketHandler`/`ClientHandler` no longer have any pre-auth phase:
 every `ClientHandler` that exists is, by construction, already
 authenticated. The old `AUTH_LOGIN|...`/`AUTH_REGISTER|...`/
@@ -74,23 +81,42 @@ still verifies cryptographically, but now names a username `userExists`
 will reject on the next connect, so the FE must swap its stored token for
 this new one immediately or the *next* reconnect fails.
 
-### The token travels in a query string — known, accepted trade-off
+### The token travels as a subprotocol, not in the URL
 
-`?token=` on the WebSocket URL ends up in Tomcat's access logs, in any
-reverse proxy's access logs in front of it, and potentially in the
-`Referer` header of whatever the page navigates to next. This isn't an
-oversight: the browser `WebSocket` constructor has no way to attach custom
-headers, so a query parameter (or a subprotocol, which has the same
-logging exposure) is the only way to hand it identity during the
-handshake. Mitigations that keep the risk low today: the token is
-short-lived-ish (24h) and scoped to nothing but chat, `wss://` in
-production keeps it off the wire in cleartext, and access logs are
-generally not public. The properly hardened version of this — not
-implemented here — would have `/api/auth/login` return a *login* token
-used only for a one-time exchange, then have the client trade it for a
+The token used to ride on the WebSocket URL as `?token=<token>`, which put
+it in Tomcat's access logs, in the access logs of any reverse proxy in
+front of it (Render's included), and potentially in the `Referer` header of
+whatever the page navigated to next. It doesn't anymore: the browser
+`WebSocket` constructor can't attach arbitrary custom headers, but its
+second argument — the subprotocol list — *is* sent as a real request header
+(`Sec-WebSocket-Protocol`), and headers are not what access logs record by
+default. So the FE opens `new WebSocket(wsOrigin() + '/ws', [token])`
+(`FE/src/chat/socket.ts`) and `TokenAuthHandshakeInterceptor` reads the
+token out of that header instead of the query string.
+
+Two mechanical details this forces, both already handled:
+
+- **The server must echo the subprotocol back.** Per RFC 6455, if the
+  client offered a subprotocol list, the handshake response has to include
+  a matching `Sec-WebSocket-Protocol` header or the browser fails the
+  connection. Nothing downstream can pick a value here (there's no fixed
+  list to negotiate — every token is a distinct string), so the interceptor
+  writes the same token back on the response itself.
+- **The token has to be a legal header token.** `TokenService`'s format is
+  `base64url(payload) + "." + base64url(signature)`, which only ever uses
+  `[A-Za-z0-9_-.]` — all valid per the HTTP token grammar the handshake
+  requires. A format change that introduced, say, `=` padding would break
+  the handshake, not just look ugly.
+
+What this does **not** fix: the token is still a 24h bearer credential, so
+anything that can read the handshake itself (a TLS-terminating proxy, a
+compromised client) still gets a reusable session. `wss://` in production
+keeps it off the wire in cleartext. The properly hardened version — not
+implemented here — would have `/api/auth/login` return a *login* token used
+only for a one-time exchange, then have the client trade it for a
 short-lived, single-use *connect* ticket right before opening the socket,
-so the value that ever appears in a URL is worthless a few seconds later
-and to anyone but this one connection.
+so the value handed to the socket is worthless a few seconds later and to
+anyone but this one connection.
 
 ## What changed vs. `legacy/`
 
@@ -105,6 +131,73 @@ and to anyone but this one connection.
 One protocol-visible change: **the WebSocket endpoint is now `/ws`**
 (`ws://host:port/ws`), not bare `ws://host:port` — Spring requires a mapped
 path for WebSocket handlers.
+
+## Group chats
+
+DMs are string-keyed by convention (`dm_<a>_<b>`, both usernames sorted) —
+there is no row anywhere that says "these two people have a conversation".
+That works for exactly two participants and nothing else, so groups are
+**persisted** instead, in `conversations` + `conversation_members`
+(`schema.sql`, `dao/ConversationDAO.java`). A group's room key is
+`group_<id>`, where `<id>` is the `conversations.id` — so authorization is
+a real membership query (`ConversationDAO.isMember`), not a string the
+client could construct itself.
+
+**Flat permission model.** There is no admin/owner role: any member can
+add a member, rename the group, or leave. `conversations.created_by` is
+informational only ("who made this") and is `ON DELETE SET NULL` — if the
+creator deletes their account, the group survives for everyone else
+instead of being destroyed by a `CASCADE`.
+
+Limits enforced in `ClientHandler`: group name 1-60 chars, 50 members
+total (the creator counts toward it), and **you can only add people you're
+friends with** (`FriendshipDAO.areFriends`). Blocking is deliberately *not*
+applied inside groups — it stays DM-scoped, the same model Telegram uses.
+
+### Protocol
+
+Client -> server (all carry `room = "group_<id>"` except `create_group`):
+
+| Type | Payload | Effect |
+|---|---|---|
+| `create_group` | `text` = JSON `{name, members[]}` | creates the group, adds the creator |
+| `add_group_member` | `receiver` = username | adds one friend, if under the member cap |
+| `rename_group` | `text` = new name | renames, for everyone |
+| `leave_group` | — | removes you; disbands the group if you were the last one |
+
+Server -> client:
+
+- **`group_conversations`** — `text` is a JSON `GroupSummary[]`
+  (`{id, name, members[]}`), the full authoritative list of your groups,
+  not a diff. Pushed to every *online* member after any create/add/rename/
+  leave, so a group appears in the other members' sidebars live.
+- **`join_denied`** — a dedicated type (not the generic `error` push) for
+  "you are not a member of this group". It has to be distinguishable:
+  `error` is also used for inline confirmations and unrelated failures, so
+  a rejected room join folded into it could be misread as a reply to
+  something else entirely.
+- **`system`** — membership/rename/leave events, persisted like any
+  message so they show up in history for whoever opens the room later.
+  The stored `text` carries the literal placeholders `{user}`/`{receiver}`
+  rather than baked-in usernames; the actor and target travel as
+  `sender`/`receiver`, which `changeUsername` already rewrites everywhere.
+  A stored `"alice added bob"` would keep saying `alice` forever after a
+  rename; this doesn't.
+
+### Two non-obvious implementation choices
+
+- **Group sends fan out directly to every online member**, not through
+  `broadcastToRoom`. `broadcastToRoom` only reaches clients whose
+  `currentRoom` is that room *right now* — which is fine for the global
+  room, but silently breaks unread badges for a member who is looking at a
+  different chat at the moment the message lands.
+- **Leaving as the last member deletes the group's messages too.**
+  `messages.room` is a free-form `VARCHAR` with no FK to `conversations`,
+  so the `ON DELETE CASCADE` from `conversation_members` does *not* sweep
+  them up. Without the explicit delete in `ConversationDAO.leaveGroup`,
+  every disbanded group's history would sit in `messages` forever,
+  unreadable by anyone (`isMember` rejects everyone) — pure unbounded
+  growth.
 
 ## Testing
 
@@ -122,19 +215,31 @@ build:
   - `UserDaoChangeUsernameIT` — the `UserDAO.changeUsername` transaction
     (renames across `users`, `messages.sender/receiver/room`,
     `friendships.requested_by` in one commit; rollback on `ALREADY_TAKEN`).
+  - `UserDaoDeleteAccountIT` — `UserDAO.deleteAccount`: the `users` /
+    `friendships` / `blocked_users` rows go, the person's `messages` rows
+    deliberately stay (see "Known limitation: `deleteAccount` does not
+    delete messages" below).
+  - `ConversationDaoLeaveGroupIT` — `ConversationDAO.leaveGroup` at the DAO
+    level: membership removal, and the disband path where the last member
+    leaving also deletes the `conversations` row and the group's `messages`
+    (which no FK would have cascaded — see "Group chats" above).
   - `WebSocketProtocolIT` — a full round trip through the real transport:
     REST register -> REST login (via `TestRestTemplate`, asserting the
-    returned token) -> open the WebSocket with `?token=<token>`
-    (`StandardWebSocketClient` -> embedded Tomcat ->
+    returned token) -> open the WebSocket with the token as its
+    subprotocol (`StandardWebSocketClient` -> embedded Tomcat ->
     `TokenAuthHandshakeInterceptor` -> `ChatWebSocketHandler` ->
     `ClientHandler` -> DAOs -> the Testcontainers Postgres) -> send a
     `message` -> assert the broadcast echo, including the UTC/`Z` timestamp
     format. Two more cases cover the token/DB edge cases from "The token is
     still trusted, but re-checked against the DB on connect" below: a
-    connect attempt with no `?token=` gets the handshake itself rejected,
-    and a valid token for a since-deleted account gets the connection
-    accepted at the handshake but then closed (`NOT_ACCEPTABLE`) by
-    `ChatWebSocketHandler`'s post-handshake `userExists` check.
+    connect attempt with no token at all gets the handshake itself
+    rejected, and a valid token for a since-deleted account gets the
+    connection accepted at the handshake but then closed (`NOT_ACCEPTABLE`)
+    by `ChatWebSocketHandler`'s post-handshake `userExists` check. Two
+    further cases cover group authorization on the real transport: joining
+    a `group_<id>` room you're not a member of comes back as `join_denied`,
+    and a group message reaches an online member who is currently sitting
+    in a *different* room (the unread-badge path, see "Group chats").
 
   **Requires a running Docker daemon** — `./mvnw verify` fails fast with
   `Could not find a valid Docker environment` if one isn't reachable, same
@@ -189,7 +294,8 @@ setup changes.
   `AUTH_OK|user` back on the same connection. Against this backend that
   message is now meaningless — there's no pre-auth phase, and
   `TokenAuthHandshakeInterceptor` rejects the *handshake itself* with `401`
-  before any message could even be sent, because there's no `?token=`. A
+  before any message could even be sent, because there's no token on the
+  handshake. A
   client must call `POST /api/auth/login` first and open the socket with the
   returned token; see "Auth: REST, not WebSocket" above. This is the biggest
   breaking change in this pass — the old client cannot be pointed at this
@@ -278,6 +384,12 @@ either is missing, same as `Database.java` used to do for `DB_PASSWORD` alone.
    ```powershell
    psql "postgresql://<user>:<password>@<host>-pooler.<region>.aws.neon.tech/<dbname>?sslmode=require" -f src/main/resources/schema.sql
    ```
+   `schema.sql` is the final-state schema, so this is all a *fresh*
+   database needs. An *existing* database (the live Neon one) instead needs
+   the incremental files in `src/main/resources/migrations/`, applied in
+   order — `003_conversations.sql` is the one that adds the group-chat
+   tables to a database created before groups existed.
+
    **This must be run manually.** Spring Boot recognizes `schema.sql` by name,
    but `spring.sql.init.mode` defaults to `embedded` — against a real
    datasource it's a no-op. Don't set it to `always`; that would silently
@@ -306,7 +418,7 @@ register → login → send message → change theme round trip persists correct
 (including the `ui_theme` column, see below). **That Neon run predates the
 REST-auth change** (it used the old `AUTH_LOGIN|...` socket protocol) — it
 has not been re-run against a live Neon database with the new
-`/api/auth/*` + `?token=` flow. That flow *is* covered by `WebSocketProtocolIT`
+`/api/auth/*` + subprotocol-token flow. That flow *is* covered by `WebSocketProtocolIT`
 against a Testcontainers Postgres in CI (see "Testing" above), just not
 against real Neon infra specifically.
 
@@ -387,10 +499,12 @@ the protocol two independent serializers that can silently drift apart.
 | `security/AuthRateLimiter.java` | per-IP login lockout + request rate limiting for `AuthController` |
 | `websocket/ChatWebSocketHandler.java` | per-IP connection limiting, session lifecycle (replaces `Server.java`) |
 | `websocket/ClientIpHandshakeInterceptor.java` | resolves the real client IP from `X-Forwarded-For` behind a reverse proxy, falling back to the raw remote address for direct connections |
-| `websocket/TokenAuthHandshakeInterceptor.java` | rejects the WS handshake (401) unless `?token=` is a valid, unexpired session token |
+| `websocket/TokenAuthHandshakeInterceptor.java` | rejects the WS handshake (401) unless the `Sec-WebSocket-Protocol` token is a valid, unexpired session token |
 | `websocket/ClientHandler.java` | per-connection business logic for an already-authenticated user (messaging, friends, blocking, themes, profile) |
 | `dao/UserDAO.java`, `MessageDAO.java`, `FriendshipDAO.java`, `BlockedUserDAO.java` | data access, raw JDBC over a Spring-managed `DataSource` |
+| `dao/ConversationDAO.java` | group chats: `conversations`/`conversation_members`, membership checks, the create/add/rename/leave transactions |
 | `model/Message.java` | message model, shared with the wire protocol |
 | `model/ChatTheme.java` | bubble/background/UI theme catalogs + defaults, also served over `/api/themes` |
-| `src/main/resources/schema.sql` | database schema (Postgres) |
+| `src/main/resources/schema.sql` | database schema (Postgres), final state — what a fresh database gets |
+| `src/main/resources/migrations/` | incremental DDL for databases that already exist (the live Neon one), applied by hand in filename order |
 | `src/main/resources/application.yml` | server port, datasource, HikariCP tuning |

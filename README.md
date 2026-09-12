@@ -1,8 +1,12 @@
 # Java Multiclient Chat System
 
-Chat app with public rooms, direct messages, friend requests, blocking,
-avatars, and customizable themes — rebuilt from a JavaFX desktop app into a
-deployable web app.
+Chat app with public rooms, direct messages, group chats, friend requests,
+blocking, avatars, and customizable themes — rebuilt from a JavaFX desktop
+app into a deployable web app.
+
+Documentation lives in [`docs/`](docs/README.md): [architecture](docs/architecture.md),
+[backend](docs/backend.md), [frontend](docs/frontend.md), and the
+[libraries](docs/dependencies.md) both sides depend on.
 
 **Live:** [messenger-fe-18o2.onrender.com](https://messenger-fe-18o2.onrender.com)
 (backend: [messenger-be-o92x.onrender.com](https://messenger-be-o92x.onrender.com))
@@ -38,7 +42,11 @@ REST, not WebSocket"). This is the one deliberate protocol break from
 `legacy/`; no JPA — see [`BE/README.md`](BE/README.md) for what else
 changed and what's intentionally still deferred.
 
-`FE/` is a full React + Vite client (auth flow, chat, friends, themes) —
-see [`FE/README.md`](FE/README.md). Both `BE/` and `FE/` are deployed on
+`FE/` is a full React + Vite client (auth flow, chat, friends, groups,
+themes) — see [`FE/README.md`](FE/README.md). Group chats are the one
+feature that has no counterpart in `legacy/` at all: they're persisted as
+real `conversations`/`conversation_members` rows rather than DMs' string-keyed
+convention, so membership is an actual authorization check — see
+[`BE/README.md`](BE/README.md)'s "Group chats". Both `BE/` and `FE/` are deployed on
 Render (see "Live" above); `legacy/` is not deployed anywhere and is kept
 only as a reference for the original desktop app.

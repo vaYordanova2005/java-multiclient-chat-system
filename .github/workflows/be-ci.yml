@@ -1,21 +1,20 @@
 name: BE build & tests
 
-# Причината този workflow да съществува: интеграционните тестове в BE/
-# (*IT.java) вдигат реален Postgres през Testcontainers, което изисква
-# работещ Docker daemon. Машината, на която се разработва проектът, няма
-# Docker — затова `./mvnw verify` там винаги се проваля на
-# "Could not find a valid Docker environment" и *IT тестовете на практика
-# никога не се изпълняват. GitHub-ските ubuntu runner-и идват с Docker
-# инсталиран, така че тук те се въртят наистина, на всеки push.
+# Why this workflow exists: the integration tests in BE/ (*IT.java) start a
+# real Postgres through Testcontainers, which needs a running Docker daemon.
+# The machine this project is developed on has no Docker — so `./mvnw verify`
+# there always fails with "Could not find a valid Docker environment" and the
+# *IT tests effectively never run. GitHub's ubuntu runners ship with Docker
+# installed, so here they do run for real, on every push.
 #
-# `./mvnw test` (само unit тестовете) продължава да работи и локално без
-# Docker — виж секцията "Testing" в BE/README.md.
+# `./mvnw test` (unit tests only) keeps working locally without Docker — see
+# the "Testing" section in BE/README.md.
 
 on:
   push:
     branches: ["**"]
   pull_request:
-  workflow_dispatch:   # ръчно пускане от Actions таба
+  workflow_dispatch:   # manual run from the Actions tab
 
 jobs:
   build:
@@ -33,18 +32,18 @@ jobs:
         with:
           java-version: "21"
           distribution: temurin
-          cache: maven      # кешира ~/.m2, за да не тегли зависимостите наново всеки път
+          cache: maven      # caches ~/.m2 so dependencies aren't re-downloaded every run
 
-      # `verify` минава през целия lifecycle: compile -> Surefire (*Test.java)
-      # -> package -> Failsafe (*IT.java, с Testcontainers). Не подаваме
-      # DB_PASSWORD — интеграционните тестове си вдигат собствен Postgres
-      # контейнер и пренасочват datasource-а към него през
-      # @DynamicPropertySource / собствен HikariConfig.
+      # `verify` runs the whole lifecycle: compile -> Surefire (*Test.java)
+      # -> package -> Failsafe (*IT.java, with Testcontainers). We don't pass
+      # DB_PASSWORD — the integration tests start their own Postgres container
+      # and point the datasource at it via @DynamicPropertySource / their own
+      # HikariConfig.
       - name: Build and run all tests
         run: ./mvnw --batch-mode verify
 
-      # Surefire/Failsafe отчетите се качват дори при провал — иначе от лога
-      # на неуспешен IT се вижда само stack trace-ът, без пълния изход.
+      # Surefire/Failsafe reports are uploaded even on failure — otherwise a
+      # failed IT only leaves a stack trace in the log, without the full output.
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4

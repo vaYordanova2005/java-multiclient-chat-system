@@ -1,5 +1,8 @@
 # FE (frontend) — React
 
+> For a map of this module rather than its details, see
+> [`docs/frontend.md`](../docs/frontend.md).
+
 A React + TypeScript (Vite) web client replacing the JavaFX desktop UI in
 [`../legacy`](../legacy), talking to [`../BE`](../BE) (Spring Boot) over REST
 (auth) + WebSocket (chat). The visual design — colors, layout, copy — is
@@ -12,15 +15,31 @@ Auth flow (login/register/forgot-password) is implemented end to end against
 `BE`'s REST contract and gated by a token-based protected route.
 
 The chat screen is ported from `legacy/Main.java`'s `openChat()`: left panel
-with Chats (search, global room, online users, DM list with unread badges) /
-Friends (pending requests, friend list) / Settings (Profile, Privacy, Social,
-Danger Zone) tabs, a chat column with message bubbles themed per the active
-bubble/background theme, and an "⋯" appearance overlay for picking
-background/bubble/UI themes. `src/chat/useChat.ts` is a single hook wrapping
-the `/ws` WebSocket connection and the whole client→server/server→client
-protocol (see `src/chat/types.ts` and `src/chat/socket.ts`). Not implemented
-yet: reconnect-on-drop, and the "coming in a future update" items legacy
-itself already punts on (custom avatar upload, last-seen).
+with Chats (search, global room, online users, DM and group list with unread
+badges) / Friends (pending requests, friend list) / Settings (Profile,
+Privacy, Social, Danger Zone) tabs, a chat column with message bubbles themed
+per the active bubble/background theme, and an "⋯" appearance overlay for
+picking background/bubble/UI themes. `src/chat/useChat.ts` is a single hook
+wrapping the `/ws` WebSocket connection and the whole client→server/
+server→client protocol (see `src/chat/types.ts` and `src/chat/socket.ts`).
+
+**Group chats** go beyond what `legacy/` had at all: `NewGroupOverlay.tsx`
+creates one from your friend list, `GroupHeaderMenu.tsx` adds members,
+renames and leaves, and the sidebar group list is re-pushed by the BE on
+every membership change — see `../BE/README.md`'s "Group chats" for the
+protocol and the permission model.
+
+`ChatSocket` (`src/chat/socket.ts`) reconnects on drop by itself:
+exponential backoff from 1s to a 30s ceiling, jittered so a restarted BE
+doesn't get every client back in lockstep, and it gives up (firing
+`onAuthFailed`) only when the token's own `exp` says the session is
+actually dead — a bare close event isn't proof of that, since an expired
+token, a BE that's down, and a laptop waking from sleep all look identical
+to the browser (no `onopen`, code 1006). `useChat` re-syncs state after a
+successful reconnect; `useChat.test.ts` covers that path.
+
+Still not implemented: the "coming in a future update" items legacy itself
+already punts on (custom avatar upload, last-seen).
 
 ## Run
 
@@ -60,22 +79,27 @@ Matches `BE/web/AuthController.java` exactly (`src/api/auth.ts`):
 | `POST /api/auth/reset/verify` | `{username, answer, newPassword}` | `200` |
 
 Failures are always `{error: string}` (see `src/api/client.ts`'s `ApiError`).
-The token is stored in `localStorage` (`src/auth/AuthContext.tsx`) and passed
-as `?token=` when the chat screen opens the WebSocket — see
-`../BE/README.md`'s "Auth: REST, not WebSocket" section for why. On
-`username_changed` (renaming from Settings → Profile), `useChat` calls back
-into `AuthContext` to swap in the reissued token immediately, per that doc's
-warning that the old one stops working on the next reconnect.
+The token is stored in `localStorage` (`src/auth/AuthContext.tsx`) and handed
+to the WebSocket as its subprotocol (`new WebSocket(url, [token])`) rather
+than on the URL, which keeps it out of proxy access logs — see
+`../BE/README.md`'s "Auth: REST, not WebSocket" and "The token travels as a
+subprotocol, not in the URL" for why. On `username_changed` (renaming from
+Settings → Profile), `useChat` calls back into `AuthContext` to swap in the
+reissued token immediately, per that doc's warning that the old one stops
+working on the next reconnect.
 
 ## WebSocket protocol
 
 `src/chat/types.ts` documents the wire envelope (`WireMessage`) and room-key
-convention (`"global"` / `"dm_<a>_<b>"`). `src/chat/useChat.ts` is the single
-source of truth for every message type in both directions — mirrors
+convention (`"global"` / `"dm_<a>_<b>"` / `"group_<id>"`, the last built by
+`groupRoomKey()`). `src/chat/useChat.ts` is the single source of truth for
+every message type in both directions — mirrors
 `BE/websocket/ClientHandler.java` exactly (message/dm/friend requests/
-blocking/themes/profile/username changes/account deletion), including
-folding `error`-type pushes (used for both failures and inline confirmations
-like "✅ Friend request sent") into toast notices rather than dropping them.
+blocking/themes/profile/username changes/account deletion/group create-add-
+rename-leave plus the `group_conversations` and `join_denied` pushes),
+including folding `error`-type pushes (used for both failures and inline
+confirmations like "✅ Friend request sent") into toast notices rather than
+dropping them.
 
 ## Structure
 
@@ -88,4 +112,5 @@ src/
   theme/      design tokens + theme catalog fetch, ported from ChatTheme.java
   pages/auth/ Login, Register, ForgotPassword — styled to match legacy/Main.java
   pages/chat/ ChatPage + LeftPanel tabs (Chats/Friends/Settings) + ChatArea
+              + NewGroupOverlay / GroupHeaderMenu (group create & management)
 ```
