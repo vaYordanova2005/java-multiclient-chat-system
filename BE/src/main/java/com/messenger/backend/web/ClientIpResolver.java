@@ -1,11 +1,11 @@
 package com.messenger.backend.web;
 
-// Единна X-Forwarded-For резолюция за реалния client IP, споделена между
-// WebSocket handshake-а (ClientIpHandshakeInterceptor) и REST auth endpoint-ите
-// (AuthController) — и двата пътя хранят per-IP rate limiting/lockout, което е
-// декоративно, ако не са консистентни за едно и също доверие в хедъра.
-// Виж ClientIpHandshakeInterceptor за пълното обяснение защо хедърът се
-// доверява само зад изрично конфигуриран единствен reverse proxy hop.
+// A single X-Forwarded-For resolution for the real client IP, shared between
+// the WebSocket handshake (ClientIpHandshakeInterceptor) and the REST auth endpoints
+// (AuthController) — both paths feed per-IP rate limiting/lockout, which is
+// decorative if they're not consistent about trusting the same header.
+// See ClientIpHandshakeInterceptor for the full explanation of why the header is
+// only trusted behind an explicitly configured single reverse proxy hop.
 public final class ClientIpResolver {
 
     private ClientIpResolver() {

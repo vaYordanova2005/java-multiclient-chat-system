@@ -33,9 +33,9 @@ CREATE TABLE IF NOT EXISTS messages (
     room        VARCHAR(100) NOT NULL,       -- "global" or "dm_userA_userB"
     message     TEXT NOT NULL,
     type        VARCHAR(20) DEFAULT 'message',
-    -- TIMESTAMPTZ, не TIMESTAMP — плоският "HH:mm" по кабела и TIMESTAMP без
-    -- timezone губеха датата напълно (историята не може да се подреди или
-    -- покаже през различни дни). Wire формат вече е ISO-8601 (виж MessageDAO).
+    -- TIMESTAMPTZ, not TIMESTAMP — the flat "HH:mm" over the wire and a TIMESTAMP
+    -- without timezone lost the date entirely (history couldn't be sorted or
+    -- displayed across different days). The wire format is now ISO-8601 (see MessageDAO).
     timestamp   TIMESTAMPTZ DEFAULT now()
 );
 
@@ -58,3 +58,25 @@ CREATE TABLE IF NOT EXISTS blocked_users (
 );
 
 CREATE INDEX IF NOT EXISTS idx_blocked_lookup ON blocked_users(blocked);
+
+CREATE TABLE IF NOT EXISTS conversations (
+    id          SERIAL PRIMARY KEY,
+    name        VARCHAR(100) NOT NULL,
+    -- Nullable + SET NULL, not CASCADE: under flat permissions (see
+    -- ConversationDAO) the creator has no special status after creation —
+    -- the field is purely informational, "who made this". CASCADE here would
+    -- delete the entire group and everyone's membership if the creator deletes
+    -- their account, which punishes the other members for something outside their
+    -- control.
+    created_by  VARCHAR(50) REFERENCES users(username) ON UPDATE CASCADE ON DELETE SET NULL,
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS conversation_members (
+    conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    username         VARCHAR(50) NOT NULL REFERENCES users(username) ON UPDATE CASCADE ON DELETE CASCADE,
+    joined_at        TIMESTAMPTZ DEFAULT now(),
+    PRIMARY KEY (conversation_id, username)
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversation_members_user ON conversation_members(username);

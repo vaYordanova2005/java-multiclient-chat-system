@@ -8,28 +8,28 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-// Per-IP rate limiting/lockout за REST auth endpoint-ите (AuthController) —
-// изнесено от ClientHandler-а, откъснато от статичните му полета, защото auth
-// вече не минава по WebSocket connection-а. Spring bean (singleton по
-// подразбиране), затова не се нуждае от "static" за да е споделен между заявки,
-// за разлика от старото място в ClientHandler.
+// Per-IP rate limiting/lockout for the REST auth endpoints (AuthController) —
+// moved out of ClientHandler, decoupled from its static fields, because auth
+// no longer goes over the WebSocket connection. A Spring bean (singleton by
+// default), so it doesn't need "static" to be shared across requests,
+// unlike its old home in ClientHandler.
 @Component
 public class AuthRateLimiter {
 
-    // ANTI-BRUTE-FORCE: проследяваме неуспешни login опити ПО IP адрес, не по
-    // username — иначе атакуващ просто пробва различни username-и и бипасва лимита.
+    // ANTI-BRUTE-FORCE: track failed login attempts BY IP address, not by
+    // username — otherwise an attacker just tries different usernames and bypasses the limit.
     private static final int MAX_LOGIN_ATTEMPTS = 5;
-    private static final long LOGIN_LOCKOUT_MS = 60_000; // 1 минута lockout след превишен лимит
+    private static final long LOGIN_LOCKOUT_MS = 60_000; // 1-minute lockout after exceeding the limit
 
-    // REQUEST RATE LIMIT — важи за ВСЯКА auth заявка (login/register/reset).
-    // AUTH_REGISTER е 2х bcrypt hashing на Tomcat нишка — неограничена
-    // регистрация на акаунти И CPU DoS с едно и също действие без тоя лимит.
+    // REQUEST RATE LIMIT — applies to EVERY auth request (login/register/reset).
+    // AUTH_REGISTER is 2x bcrypt hashing on a Tomcat thread — unlimited
+    // account registration AND CPU DoS via the same action without this limit.
     private static final int REQUEST_RATE_LIMIT_MAX = 20;
     private static final long REQUEST_RATE_LIMIT_WINDOW_MS = 10_000;
 
     private static final long CLEANUP_INTERVAL_MIN = 10;
-    private static final long STALE_LOGIN_TRACKER_MS = 30 * 60_000; // 30 мин неактивност
-    private static final long STALE_RATE_WINDOW_MS = 5 * 60_000;    // 5 мин неактивност
+    private static final long STALE_LOGIN_TRACKER_MS = 30 * 60_000; // 30 min of inactivity
+    private static final long STALE_RATE_WINDOW_MS = 5 * 60_000;    // 5 min of inactivity
 
     private final Map<String, LoginAttemptTracker> loginAttemptsByIp = new HashMap<>();
     private final Map<String, RateWindow> requestRateByIp = new HashMap<>();
@@ -70,8 +70,8 @@ public class AuthRateLimiter {
         }
     }
 
-    // Общ pre-auth-style лимит: макс. REQUEST_RATE_LIMIT_MAX заявки на
-    // REQUEST_RATE_LIMIT_WINDOW_MS на IP, важи за всеки auth endpoint.
+    // A general pre-auth-style limit: max REQUEST_RATE_LIMIT_MAX requests per
+    // REQUEST_RATE_LIMIT_WINDOW_MS per IP, applies to every auth endpoint.
     public boolean checkRequestRateLimit(String ip) {
         synchronized (requestRateByIp) {
             RateWindow w = requestRateByIp.computeIfAbsent(ip, k -> new RateWindow());
@@ -87,7 +87,7 @@ public class AuthRateLimiter {
 
     public enum LoginLockState { OK, LOCKED }
 
-    // Проверява дали IP-то е locked ПРЕДИ да пробваме автентикация.
+    // Checks whether the IP is locked BEFORE we attempt authentication.
     public LoginLockState checkLoginLock(String ip) {
         synchronized (loginAttemptsByIp) {
             LoginAttemptTracker tracker = loginAttemptsByIp.get(ip);
@@ -113,8 +113,8 @@ public class AuthRateLimiter {
         }
     }
 
-    // Връща true ако тоя провал точно е задействал lockout-а (за caller-a да
-    // персонализира съобщението, "locked for 60s" срещу обикновено "wrong password").
+    // Returns true if this failure is what just triggered the lockout (so the
+    // caller can customize the message, "locked for 60s" vs. a plain "wrong password").
     public boolean recordLoginFailure(String ip) {
         synchronized (loginAttemptsByIp) {
             LoginAttemptTracker tracker = loginAttemptsByIp.computeIfAbsent(ip, k -> new LoginAttemptTracker());

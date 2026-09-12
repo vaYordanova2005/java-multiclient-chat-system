@@ -3,11 +3,11 @@ server:
 
 app:
   security:
-    # Довери се на X-Forwarded-For за резолвиране на реалния client IP (per-IP
-    # rate limit / connection limit). Включвай САМО ако приложението наистина
-    # е зад точно един reverse proxy hop, който сам добавя тоя хедър (напр.
-    # Render) — иначе клиент може да си пише произволен X-Forwarded-For и да
-    # заобиколи изцяло lockout/connection лимитите. Виж ClientIpHandshakeInterceptor.
+    # Trust X-Forwarded-For to resolve the real client IP (per-IP
+    # rate limit / connection limit). Enable ONLY if the app is truly
+    # behind exactly one reverse proxy hop that adds this header itself (e.g.
+    # Render) — otherwise a client can set an arbitrary X-Forwarded-For and
+    # fully bypass the lockout/connection limits. See ClientIpHandshakeInterceptor.
     trust-proxy-headers: ${TRUST_PROXY_HEADERS:false}
     # WebSocket CORS — comma-separated origin patterns (e.g.
     # "https://my-app.vercel.app"). "*" until the FE's deploy domain is known;

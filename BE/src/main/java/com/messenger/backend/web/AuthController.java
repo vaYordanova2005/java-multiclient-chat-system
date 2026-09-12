@@ -13,14 +13,14 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-// REST auth — заменя AUTH_LOGIN|.../AUTH_REGISTER|.../AUTH_RESET_*|... pre-auth
-// протокола, който преди минаваше по самия WebSocket. Обикновен POST + JSON
-// тяло е конвенционално за React FE (fetch, без нужда да се отваря сокет само
-// за да се логнеш) и се дебъгва директно в browser dev tools/Network tab —
-// виж README "REST auth, WebSocket само за чат/съобщения" за пълния разбор.
-// WS-ът вече изисква тоя token през Sec-WebSocket-Protocol header-а (виж
-// TokenAuthHandshakeInterceptor) и не приема НИКАКВИ pre-auth команди повече
-// — ClientHandler е auth-only.
+// REST auth — replaces the AUTH_LOGIN|.../AUTH_REGISTER|.../AUTH_RESET_*|... pre-auth
+// protocol that used to run over the WebSocket itself. Plain POST + JSON
+// body is conventional for a React FE (fetch, no need to open a socket just
+// to log in) and debugs directly in browser dev tools/Network tab —
+// see README "REST auth, WebSocket only for chat/messages" for the full breakdown.
+// The WS now requires this token via the Sec-WebSocket-Protocol header (see
+// TokenAuthHandshakeInterceptor) and no longer accepts ANY pre-auth commands
+// — ClientHandler is auth-only.
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
@@ -125,8 +125,8 @@ public class AuthController {
         }
 
         if (result == UserDAO.AuthResult.ERROR) {
-            // Базата е недостъпна — НЕ броим това като неуспешен опит (иначе
-            // временен DB blip би заключил легитимни потребители).
+            // The DB is unreachable — do NOT count this as a failed attempt (otherwise
+            // a transient DB blip would lock out legitimate users).
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                     .body(new ErrorResponse("Service temporarily unavailable. Please try again."));
         }

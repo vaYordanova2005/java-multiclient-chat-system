@@ -16,28 +16,28 @@ import java.util.Base64;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
-// Издава/проверява session token-и, върнати от AuthController след успешен
-// REST login и подадени от FE-то като "?token=" query param при отваряне на
-// /ws — иначе WebSocket-ът няма как да знае КОЙ потребител се свързва, след
-// като AUTH_LOGIN вече не минава по самия socket (виж README "REST auth,
-// WebSocket само за чат").
+// Issues/verifies session tokens, returned by AuthController after a successful
+// REST login and passed by the FE as a "?token=" query param when opening
+// /ws — otherwise the WebSocket has no way to know WHICH user is connecting, now
+// that AUTH_LOGIN no longer goes over the socket itself (see README "REST auth,
+// WebSocket only for chat").
 //
-// Формат: base64url(JSON payload) + "." + base64url(HMAC-SHA256 подпис на
-// тая base64url стойност). Stateless — няма server-side session storage,
-// само подпис + expiry в самия token, затова верификацията не се удря в
-// базата на всяко WS съобщение. Mac не е thread-safe, затова взимаме нова
-// инстанция на извикване вместо да пазим споделено поле.
+// Format: base64url(JSON payload) + "." + base64url(HMAC-SHA256 signature of
+// that base64url value). Stateless — no server-side session storage,
+// just a signature + expiry inside the token itself, so verification doesn't hit
+// the DB on every WS message. Mac isn't thread-safe, so we grab a new
+// instance per call instead of keeping a shared field.
 @Component
 public class TokenService {
 
     private static final Logger log = LoggerFactory.getLogger(TokenService.class);
     private static final String ALGORITHM = "HmacSHA256";
     private static final long TOKEN_TTL_MS = TimeUnit.HOURS.toMillis(24);
-    // HmacSHA256 не отслабва под пълна 256-битова сигурност заради ключа
-    // САМО ако ключът носи достатъчно ентропия — кратък secret (напр. "abcd")
-    // прави подписа тривиално brute-force-ваем и превръща цялата token схема
-    // в декорация. 32 символа е долна граница, не гаранция за качествена
-    // случайност — но поне отсича очевидно слабите стойности.
+    // HmacSHA256 only stays at full 256-bit security thanks to the key
+    // ONLY if the key carries enough entropy — a short secret (e.g. "abcd")
+    // makes the signature trivially brute-forceable and turns the entire token
+    // scheme into decoration. 32 characters is a lower bound, not a guarantee of
+    // quality randomness — but it at least cuts off the obviously weak values.
     private static final int MIN_SECRET_LENGTH = 32;
 
     private final Gson gson = new Gson();
@@ -75,7 +75,7 @@ public class TokenService {
         return payloadB64 + "." + sigB64;
     }
 
-    // Връща username-а само ако подписът е валиден И token-ът не е изтекъл.
+    // Returns the username only if the signature is valid AND the token hasn't expired.
     public Optional<String> verify(String token) {
         if (token == null) return Optional.empty();
 
@@ -91,7 +91,7 @@ public class TokenService {
             expectedSig = sign(payloadB64);
             providedSig = Base64.getUrlDecoder().decode(sigB64);
         } catch (IllegalArgumentException e) {
-            return Optional.empty(); // невалиден base64 -> невалиден token, не грешка
+            return Optional.empty(); // invalid base64 -> invalid token, not an error
         }
 
         if (!MessageDigest.isEqual(expectedSig, providedSig)) {
@@ -119,8 +119,8 @@ public class TokenService {
             mac.init(key);
             return mac.doFinal(data.getBytes(StandardCharsets.UTF_8));
         } catch (GeneralSecurityException e) {
-            // ALGORITHM е фиксиран, валиден JDK алгоритъм — не може да се случи
-            // при нормална експлоатация, но не поглъщаме мълчаливо непозната грешка.
+            // ALGORITHM is a fixed, valid JDK algorithm — this can't happen
+            // under normal operation, but we don't silently swallow an unknown error.
             log.error("Failed to sign token", e);
             throw new IllegalStateException("Token signing failed", e);
         }

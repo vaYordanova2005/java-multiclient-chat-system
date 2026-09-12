@@ -12,20 +12,20 @@ class UsernameValidatorTest {
         assertTrue(UsernameValidator.isValid("alice"));
         assertTrue(UsernameValidator.isValid("Bob123"));
         assertTrue(UsernameValidator.isValid("a".repeat(30)));
-        assertTrue(UsernameValidator.isValid("abc")); // минимум 3
+        assertTrue(UsernameValidator.isValid("abc")); // minimum 3
     }
 
     @Test
     void rejectsNullOrOutOfBoundsLength() {
         assertFalse(UsernameValidator.isValid(null));
-        assertFalse(UsernameValidator.isValid("ab"));           // под 3
-        assertFalse(UsernameValidator.isValid("a".repeat(31))); // над 30
+        assertFalse(UsernameValidator.isValid("ab"));           // below 3
+        assertFalse(UsernameValidator.isValid("a".repeat(31))); // above 30
         assertFalse(UsernameValidator.isValid(""));
     }
 
-    // Pre-auth протоколът е "|"-делимитиран, а DM room-имената се парсват с
-    // "_" — тия два символа МУСИ да са забранени в username, иначе чупят и
-    // двата парсъра (виж ClientHandler.handlePreAuthMessage / room.split("_", 3)).
+    // The pre-auth protocol was "|"-delimited, and DM room names are parsed with
+    // "_" — these two characters MUST be forbidden in a username, otherwise they break
+    // both parsers (see ClientHandler.handlePreAuthMessage / room.split("_", 3)).
     @Test
     void rejectsProtocolDelimiterCharacters() {
         assertFalse(UsernameValidator.isValid("al|ice"));

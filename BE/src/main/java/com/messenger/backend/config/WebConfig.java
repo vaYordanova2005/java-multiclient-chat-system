@@ -7,10 +7,10 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 import java.util.Arrays;
 
-// CORS за REST auth endpoint-ите (AuthController) — отделно от WebSocketConfig,
-// защото Spring третира MVC (HTTP) и WebSocket handshake CORS като две
-// напълно различни неща, дори на един и същ Tomcat. Ползва СЪЩИЯ
-// ALLOWED_ORIGIN_PATTERNS, за да не се разсинхронизират двете конфигурации.
+// CORS for the REST auth endpoints (AuthController) — separate from WebSocketConfig,
+// because Spring treats MVC (HTTP) and WebSocket handshake CORS as two
+// completely different things, even on the same Tomcat. Uses the SAME
+// ALLOWED_ORIGIN_PATTERNS so the two configs don't drift apart.
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
 

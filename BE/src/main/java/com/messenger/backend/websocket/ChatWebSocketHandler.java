@@ -1,6 +1,7 @@
 package com.messenger.backend.websocket;
 
 import com.messenger.backend.dao.BlockedUserDAO;
+import com.messenger.backend.dao.ConversationDAO;
 import com.messenger.backend.dao.FriendshipDAO;
 import com.messenger.backend.dao.MessageDAO;
 import com.messenger.backend.dao.UserDAO;
@@ -17,25 +18,25 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-// Заменя Server.java (Java-WebSocket библиотеката) — Spring регистрира тоя
-// handler върху вградения Tomcat вместо отделен WebSocketServer стек.
+// Replaces Server.java (the Java-WebSocket library) — Spring registers this
+// handler on the embedded Tomcat instead of a separate WebSocketServer stack.
 @Component
 public class ChatWebSocketHandler extends TextWebSocketHandler {
 
     private static final Logger log = LoggerFactory.getLogger(ChatWebSocketHandler.class);
 
-    // Spring's WebSocketSession.sendMessage() е explicitно НЕ thread-safe —
-    // broadcast-ващата нишка на потребител А и нишката, обработваща собствено
-    // съобщение на потребител B, могат едновременно да пишат в сесията на B
-    // (broadcastToRoom/broadcastOnlineUsers обхождат ВСИЧКИ клиенти). Без тоя
-    // decorator конкурентен write хвърля IllegalStateException
-    // ("TEXT_PARTIAL_WRITING") или чупи frame-ове насред запис.
+    // Spring's WebSocketSession.sendMessage() is explicitly NOT thread-safe —
+    // user A's broadcasting thread and the thread handling user B's own
+    // message can write into B's session at the same time
+    // (broadcastToRoom/broadcastOnlineUsers iterate ALL clients). Without this
+    // decorator, a concurrent write throws IllegalStateException
+    // ("TEXT_PARTIAL_WRITING") or corrupts frames mid-write.
     private static final int SEND_TIME_LIMIT_MS = 10_000;
     private static final int SEND_BUFFER_SIZE_LIMIT_BYTES = 512 * 1024;
 
     private final Map<WebSocketSession, ClientHandler> handlers = new ConcurrentHashMap<>();
 
-    // CONNECTION LIMIT PER IP — пречи на "connection spam" атака.
+    // CONNECTION LIMIT PER IP — prevents a "connection spam" attack.
     private static final int MAX_CONNECTIONS_PER_IP = 10;
     private final Map<String, Integer> connectionsPerIp = new ConcurrentHashMap<>();
 
@@ -43,20 +44,22 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private final UserDAO userDAO;
     private final FriendshipDAO friendshipDAO;
     private final BlockedUserDAO blockedUserDAO;
+    private final ConversationDAO conversationDAO;
     private final TokenService tokenService;
 
     public ChatWebSocketHandler(MessageDAO messageDAO, UserDAO userDAO,
                                  FriendshipDAO friendshipDAO, BlockedUserDAO blockedUserDAO,
-                                 TokenService tokenService) {
+                                 ConversationDAO conversationDAO, TokenService tokenService) {
         this.messageDAO = messageDAO;
         this.userDAO = userDAO;
         this.friendshipDAO = friendshipDAO;
         this.blockedUserDAO = blockedUserDAO;
+        this.conversationDAO = conversationDAO;
         this.tokenService = tokenService;
     }
 
-    // Виж ClientIpHandshakeInterceptor за защо не ползваме
-    // session.getRemoteAddress() директно.
+    // See ClientIpHandshakeInterceptor for why we don't use
+    // session.getRemoteAddress() directly.
     private String resolveIp(WebSocketSession session) {
         Object attr = session.getAttributes().get(ClientIpHandshakeInterceptor.CLIENT_IP_ATTRIBUTE);
         if (attr != null) return attr.toString();
@@ -81,10 +84,10 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        // TokenAuthHandshakeInterceptor вече е отказал handshake-а (401) при
-        // липсващ/невалиден token, значи тук username винаги е налично — но
-        // не се доверяваме мълчаливо: липсата му тук би значела счупен
-        // interceptor wiring, не невалидна заявка, затова затваряме отбранително.
+        // TokenAuthHandshakeInterceptor has already rejected the handshake (401)
+        // for a missing/invalid token, so username is always present here — but
+        // we don't trust that silently: its absence here would mean broken
+        // interceptor wiring, not an invalid request, so we close defensively.
         Object usernameAttr = session.getAttributes().get(TokenAuthHandshakeInterceptor.USERNAME_ATTRIBUTE);
         if (usernameAttr == null) {
             log.error("WebSocket session established without an authenticated username — closing");
@@ -97,12 +100,12 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         }
         String username = usernameAttr.toString();
 
-        // Токенът е stateless и валиден до 24ч след издаването си (TokenService)
-        // — сам по себе си НЕ гарантира, че username-ът все още е реален ред в
-        // users в МОМЕНТА на connect-а. Без тая проверка изтрит акаунт
-        // (delete_account) или преименуван (changeUsername, старото име в
-        // токена) продължава да се "логва" с призрачна сесия — виж
-        // UserDAO.userExists за пълния разбор на последствията.
+        // The token is stateless and valid for up to 24h after issuing (TokenService)
+        // — by itself it does NOT guarantee the username is still a real row in
+        // users at the MOMENT of connecting. Without this check, a deleted
+        // account (delete_account) or a renamed one (changeUsername, old name
+        // still in the token) keeps "logging in" with a ghost session — see
+        // UserDAO.userExists for the full breakdown of consequences.
         if (!userDAO.userExists(username)) {
             log.info("Rejected connection for {} — token's username no longer exists", username);
             decrementConnectionCount(ip);
@@ -120,14 +123,14 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
         ClientHandler handler = new ClientHandler(threadSafeSession, ip, username, () ->
                 decrementConnectionCount(ip),
-                messageDAO, userDAO, friendshipDAO, blockedUserDAO, tokenService
+                messageDAO, userDAO, friendshipDAO, blockedUserDAO, conversationDAO, tokenService
         );
         handlers.put(session, handler);
         handler.start();
     }
 
-    // Премахва изцяло записа при 0, вместо да го остави да виси с value 0
-    // завинаги — connectionsPerIp иначе расте без ограничение с всеки нов IP.
+    // Removes the entry entirely at 0, instead of leaving it hanging with value 0
+    // forever — otherwise connectionsPerIp grows without bound with every new IP.
     private void decrementConnectionCount(String ip) {
         connectionsPerIp.compute(ip, (k, v) -> (v == null || v <= 1) ? null : v - 1);
     }
@@ -146,7 +149,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
     @Override
     public void handleTransportError(WebSocketSession session, Throwable exception) {
-        // Тихо игнорираме — реалният disconnect cleanup минава през
-        // afterConnectionClosed, което Spring вика веднага след transport error-и.
+        // Silently ignored — the actual disconnect cleanup goes through
+        // afterConnectionClosed, which Spring calls right after transport errors.
     }
 }

@@ -5,12 +5,14 @@ import {
   GLOBAL_ROOM,
   dmRoomKey,
   otherDmUser,
+  groupRoomKey,
   type WireMessage,
   type FriendInfo,
   type SearchResult,
   type ThemePreferences,
   type ProfileInfo,
   type DmConversationsPayload,
+  type GroupInfo,
 } from './types';
 
 export interface Notice {
@@ -100,6 +102,7 @@ export function useChat({ token, username, defaultTheme, onUsernameChanged, onAc
   const [currentRoom, setCurrentRoom] = useState(GLOBAL_ROOM);
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [dmPartners, setDmPartners] = useState<string[]>([]);
+  const [groups, setGroups] = useState<GroupInfo[]>([]);
   const [friends, setFriends] = useState<FriendInfo[]>([]);
   const [blocked, setBlocked] = useState<string[]>([]);
   const [pending, setPending] = useState<string[]>([]);
@@ -321,6 +324,29 @@ export function useChat({ token, username, defaultTheme, onUsernameChanged, onAc
           if (payload.partners) setDmPartners((prev) => [...new Set([...prev, ...payload.partners])]);
           return;
         }
+        case 'group_conversations': {
+          // Full authoritative replace, not a merge like dmPartners above —
+          // a DM never disappears, but leave_group means a group can, so a
+          // stale merge would keep showing a group you've already left.
+          const list: GroupInfo[] = msg.text ? JSON.parse(msg.text) : [];
+          setGroups(list);
+          return;
+        }
+        case 'join_denied': {
+          // Unambiguous signal (unlike 'error', see BE ClientHandler for
+          // why join_denied is its own type): only act if this reply is for
+          // the room we're still actually sitting in — a stale denial for a
+          // room we've since navigated away from must be ignored.
+          if (msg.room !== currentRoomRef.current) return;
+          pendingRoomJoinRef.current = null;
+          if (msg.text) pushNotice(msg.text);
+          currentRoomRef.current = GLOBAL_ROOM;
+          setCurrentRoom(GLOBAL_ROOM);
+          setMessages([]);
+          seenSignaturesRef.current.clear();
+          requestRoomJoin(GLOBAL_ROOM);
+          return;
+        }
         case 'profile_info': {
           if (!msg.text) return;
           setProfile(JSON.parse(msg.text));
@@ -366,10 +392,18 @@ export function useChat({ token, username, defaultTheme, onUsernameChanged, onAc
         case 'system': {
           if (absorbIfStale(msg)) return;
           resolvePendingRoomJoin(msg);
-          // Room-scoped (join/leave, via broadcastToRoom) only ever
-          // disagrees with currentRoomRef while a room_join is in flight;
-          // roomless ones (e.g. a direct "friend request accepted" notice)
-          // are always relevant regardless of the active room.
+          // Room-scoped system messages regularly disagree with
+          // currentRoomRef now, not just during an in-flight room_join:
+          // group events (member added/renamed/left, see BE's
+          // sendGroupSystemMessage) fan out to every online member the same
+          // way a group "message" does, regardless of which room they're
+          // currently looking at. Deliberately dropped silently here rather
+          // than bumping unread like the `default` case below does for
+          // "message" — it's already persisted and will show up next time
+          // the room is opened, and "X renamed the group" lighting up as
+          // unread isn't worth it. Roomless system messages (e.g. a direct
+          // "friend request accepted" notice) are always relevant
+          // regardless of the active room.
           if (!msg.room || msg.room === currentRoomRef.current) appendMessage(msg);
           return;
         }
@@ -396,13 +430,21 @@ export function useChat({ token, username, defaultTheme, onUsernameChanged, onAc
           // "message" and anything else room-scoped.
           if (msg.room && msg.room === currentRoomRef.current) {
             appendMessage(msg);
-          } else if (msg.room) {
+          } else if (msg.room && msg.user !== self) {
+            // Guard added alongside group fan-out: broadcastToRoom used to
+            // make a self-echo past this branch impossible (it only ever
+            // reached clients whose currentRoom already matched), but group
+            // messages are now pushed directly to every member regardless
+            // of their currentRoom — so your own message can legitimately
+            // arrive after you've already switched rooms, and without this
+            // guard that showed up as an unread badge on your own outgoing
+            // message (same guard the `dm` case above already has).
             incrementUnread(msg.room);
           }
         }
       }
     },
-    [absorbIfStale, addDmPartner, appendMessage, incrementUnread, onAccountDeleted, onUsernameChanged, pushNotice, resolvePendingRoomJoin],
+    [absorbIfStale, addDmPartner, appendMessage, incrementUnread, onAccountDeleted, onUsernameChanged, pushNotice, requestRoomJoin, resolvePendingRoomJoin],
   );
 
   // handleServerMessage/onAuthFailed close over per-render state (current
@@ -511,6 +553,34 @@ export function useChat({ token, username, defaultTheme, onUsernameChanged, onAc
     [addDmPartner, changeRoom],
   );
 
+  const createGroup = useCallback(
+    (name: string, members: string[]) => {
+      send({ type: 'create_group', text: JSON.stringify({ name, members }) });
+    },
+    [send],
+  );
+
+  const openGroup = useCallback((id: number) => changeRoom(groupRoomKey(id)), [changeRoom]);
+
+  const addGroupMember = useCallback(
+    (id: number, username: string) => send({ type: 'add_group_member', room: groupRoomKey(id), receiver: username }),
+    [send],
+  );
+
+  const renameGroup = useCallback(
+    (id: number, name: string) => send({ type: 'rename_group', room: groupRoomKey(id), text: name }),
+    [send],
+  );
+
+  const leaveGroup = useCallback(
+    (id: number) => {
+      const room = groupRoomKey(id);
+      if (currentRoomRef.current === room) switchToGlobal();
+      send({ type: 'leave_group', room });
+    },
+    [send, switchToGlobal],
+  );
+
   const sendChatMessage = useCallback(
     (text: string) => {
       const trimmed = text.trim();
@@ -589,6 +659,7 @@ export function useChat({ token, username, defaultTheme, onUsernameChanged, onAc
     currentRoom,
     messages,
     dmPartners,
+    groups,
     friends,
     blocked,
     pending,
@@ -603,6 +674,11 @@ export function useChat({ token, username, defaultTheme, onUsernameChanged, onAc
     responseSeq,
     switchToGlobal,
     openDM,
+    createGroup,
+    openGroup,
+    addGroupMember,
+    renameGroup,
+    leaveGroup,
     sendChatMessage,
     search,
     sendFriendRequest,

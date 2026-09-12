@@ -3,119 +3,120 @@ package com.messenger.backend.model;
 import java.util.List;
 
 /**
- * Централно място за всички цветови палитри в приложението:
- * - фон на приложението (app background) — избор от 2/3/4 цвета градиент
- * - теми на чат-балончетата (10 теми: 5 едноцветни + 5 омбре)
+ * Central place for all color palettes in the app:
+ * - app background — a choice of 2/3/4-color gradients
+ * - chat bubble themes (10 themes: 5 solid + 5 ombre)
 */
 public class ChatTheme {
 
     // ============================================================
-    // БАЗОВА ПАЛИТРА "Lilac Dreamer"
+    // BASE PALETTE "Lilac Dreamer"
     // ============================================================
-    public static final String LILAC_1 = "#C8CEEE"; // светло лилаво-синьо
-    public static final String LILAC_2 = "#E8DAF0"; // светло лилаво
-    public static final String LILAC_3 = "#F3E4F5"; // почти бяло лилаво (app background)
-    public static final String LILAC_4 = "#FCDCE1"; // пастелно розово
-    public static final String LILAC_5 = "#D8BEE5"; // лилаво
-    public static final String LILAC_6 = "#A7ABDE"; // по-наситено лилаво-синьо
+    public static final String LILAC_1 = "#C8CEEE"; // light lilac-blue
+    public static final String LILAC_2 = "#E8DAF0"; // light lilac
+    public static final String LILAC_3 = "#F3E4F5"; // near-white lilac (app background)
+    public static final String LILAC_4 = "#FCDCE1"; // pastel pink
+    public static final String LILAC_5 = "#D8BEE5"; // lilac
+    public static final String LILAC_6 = "#A7ABDE"; // more saturated lilac-blue
 
     public static final String[] BASE_PALETTE = {
             LILAC_1, LILAC_2, LILAC_3, LILAC_4, LILAC_5, LILAC_6
     };
 
     // ============================================================
-    // БАЗОВА ПАЛИТРА "Sky" — hex стойностите са извадени директно от
-    // пикселите на палитра-снимка, качена от потребителя (не на око).
-    // Заменя старата зелена "Sage" палитра навсякъде — background,
-    // balloons И UI theme, а не само UI theme както преди.
+    // BASE PALETTE "Sky" — the hex values were pulled directly from
+    // the pixels of a palette photo uploaded by the user (not eyeballed).
+    // Replaces the old green "Sage" palette everywhere — background,
+    // bubbles AND UI theme, not just UI theme like before.
     // ============================================================
-    public static final String SKY_1 = "#D9F0F6"; // най-светло, ледено синьо-циан
-    public static final String SKY_2 = "#D5E3F0"; // светло синьо
-    public static final String SKY_3 = "#C9D9F0"; // светъл periwinkle
+    public static final String SKY_1 = "#D9F0F6"; // lightest, icy blue-cyan
+    public static final String SKY_2 = "#D5E3F0"; // light blue
+    public static final String SKY_3 = "#C9D9F0"; // light periwinkle
     public static final String SKY_4 = "#C1D5F0"; // periwinkle
-    public static final String SKY_5 = "#B3CBEF"; // средно наситен periwinkle-син
-    public static final String SKY_6 = "#A8B5E1"; // най-наситен periwinkle-индиго
+    public static final String SKY_5 = "#B3CBEF"; // medium-saturated periwinkle-blue
+    public static final String SKY_6 = "#A8B5E1"; // most saturated periwinkle-indigo
 
     public static final String[] SKY_PALETTE = {
             SKY_1, SKY_2, SKY_3, SKY_4, SKY_5, SKY_6
     };
 
     // ============================================================
-    // БАЗОВА ПАЛИТРА "Vivid" — ярки, наситени цветове (за разлика от
-    // пастелните Lilac/Sky по-горе), градиент жълто → оранжево → червено →
-    // магента → лилаво → синьо, по заявка на потребителя за по-ярки теми.
+    // BASE PALETTE "Vivid" — bright, saturated colors (unlike the
+    // pastel Lilac/Sky above), gradient yellow → orange → red →
+    // magenta → violet → blue, added by user request for brighter themes.
     // ============================================================
-    public static final String VIVID_1 = "#FFD93B"; // слънчево жълто
-    public static final String VIVID_2 = "#FFA630"; // мандарина
-    public static final String VIVID_3 = "#FF6B4A"; // коралово оранжево
-    public static final String VIVID_4 = "#F03A47"; // мак/червено
-    public static final String VIVID_5 = "#E91E8C"; // магента
-    public static final String VIVID_6 = "#B32FD4"; // орхидея
-    public static final String VIVID_7 = "#7B3FE4"; // виолетово
-    public static final String VIVID_8 = "#3D6FE0"; // електриково синьо
+    public static final String VIVID_1 = "#FFD93B"; // sunny yellow
+    public static final String VIVID_2 = "#FFA630"; // tangerine
+    public static final String VIVID_3 = "#FF6B4A"; // coral orange
+    public static final String VIVID_4 = "#F03A47"; // poppy/red
+    public static final String VIVID_5 = "#E91E8C"; // magenta
+    public static final String VIVID_6 = "#B32FD4"; // orchid
+    public static final String VIVID_7 = "#7B3FE4"; // violet
+    public static final String VIVID_8 = "#3D6FE0"; // electric blue
 
     public static final String[] VIVID_PALETTE = {
             VIVID_1, VIVID_2, VIVID_3, VIVID_4, VIVID_5, VIVID_6, VIVID_7, VIVID_8
     };
 
     // ============================================================
-    // "Vivid" ПРИГЛУШЕНИ ЗА ФОН — VIVID_* по-горе са с пълна наситеност,
-    // добри за малки повърхности (балончета, UI accent swatch), но заливат
-    // целия чат екран и правят текста нечетим. Тия версии са същите нюанси,
-    // смесени ~35% към бяло — колкото да паднат на нивото на яркост на левия
-    // панел (пастелните LILAC/SKY фонове), без да стават пастелно избелени.
-    // Използват се САМО за BackgroundTheme, никога за bubble/UI.
+    // "Vivid" MUTED FOR BACKGROUND — the VIVID_* above are at full
+    // saturation, good for small surfaces (bubbles, UI accent swatch), but
+    // they flood the whole chat screen and make text unreadable. These
+    // versions are the same hues, blended ~35% toward white — just enough to
+    // drop to the brightness level of the left panel (the pastel LILAC/SKY
+    // backgrounds), without becoming washed-out pastel.
+    // Used ONLY for BackgroundTheme, never for bubble/UI.
     // ============================================================
-    public static final String VIVID_BG_1 = "#FFE680"; // мека слънчева жълта
-    public static final String VIVID_BG_2 = "#FFC578"; // мека мандаринова
-    public static final String VIVID_BG_3 = "#FF9F89"; // мека коралова
-    public static final String VIVID_BG_4 = "#F57F87"; // мека червена/мак
-    public static final String VIVID_BG_5 = "#F16DB4"; // мека магента
-    public static final String VIVID_BG_6 = "#CE78E3"; // мека орхидея
-    public static final String VIVID_BG_7 = "#A982ED"; // мека виолетова
-    public static final String VIVID_BG_8 = "#81A1EB"; // мека електриково синя
+    public static final String VIVID_BG_1 = "#FFE680"; // soft sunny yellow
+    public static final String VIVID_BG_2 = "#FFC578"; // soft tangerine
+    public static final String VIVID_BG_3 = "#FF9F89"; // soft coral
+    public static final String VIVID_BG_4 = "#F57F87"; // soft red/poppy
+    public static final String VIVID_BG_5 = "#F16DB4"; // soft magenta
+    public static final String VIVID_BG_6 = "#CE78E3"; // soft orchid
+    public static final String VIVID_BG_7 = "#A982ED"; // soft violet
+    public static final String VIVID_BG_8 = "#81A1EB"; // soft electric blue
 
     // ============================================================
-    // 6 НОВИ непастелни нюанса (извън жълто→синьо спектъра на Vivid) —
-    // директно калибрирани на същото ~35%-към-бяло ниво на яркост, за да
-    // не се повтори грешката с твърде наситен фон на цял екран.
+    // 6 NEW non-pastel hues (outside Vivid's yellow→blue spectrum) —
+    // directly calibrated to the same ~35%-toward-white brightness level, so
+    // we don't repeat the mistake of a too-saturated full-screen background.
     // ============================================================
-    public static final String VIVID_BG_TEAL      = "#66D1C5"; // тийл
-    public static final String VIVID_BG_EMERALD   = "#6FD996"; // изумрудено зелено
-    public static final String VIVID_BG_LIME      = "#C3EF7C"; // лайм
-    public static final String VIVID_BG_ROSE      = "#F88296"; // роза
-    public static final String VIVID_BG_TURQUOISE = "#5DD0E3"; // тюркоаз
-    public static final String VIVID_BG_AMBER     = "#F9C060"; // кехлибарено жълто
+    public static final String VIVID_BG_TEAL      = "#66D1C5"; // teal
+    public static final String VIVID_BG_EMERALD   = "#6FD996"; // emerald green
+    public static final String VIVID_BG_LIME      = "#C3EF7C"; // lime
+    public static final String VIVID_BG_ROSE      = "#F88296"; // rose
+    public static final String VIVID_BG_TURQUOISE = "#5DD0E3"; // turquoise
+    public static final String VIVID_BG_AMBER     = "#F9C060"; // amber yellow
 
-    // Текст върху светъл пастелен фон — тъмно лилаво-сиво, не черно (по-мек контраст)
+    // Text over a light pastel background — dark lilac-gray, not black (softer contrast)
     public static final String TEXT_DARK   = "#3d3458";
     public static final String TEXT_MUTED  = "#7a6f94";
-    public static final String TEXT_ON_BUBBLE = "#2d2640"; // текст върху пастелните балончета
+    public static final String TEXT_ON_BUBBLE = "#2d2640"; // text over the pastel bubbles
 
     // ============================================================
-    // ПАСТЕЛНИ SEMANTIC ЦВЕТОВЕ (success / danger) — same семантика
-    // (зелено = добро, червено = опасно), но омекотени тонове, за да се
-    // blend-ват с останалата палитра вместо да стоят като "недовършени"
-    // ярки бутони върху пастелен фон.
+    // PASTEL SEMANTIC COLORS (success / danger) — same semantics
+    // (green = good, red = dangerous), but softened tones so they
+    // blend with the rest of the palette instead of standing out as "unfinished"
+    // bright buttons on a pastel background.
     // ============================================================
-    public static final String SUCCESS_SOFT       = "#9FE0C7"; // мек пастелен зелен (accept бутони)
-    public static final String SUCCESS_SOFT_TEXT  = "#1f6e54"; // тъмно зелен текст за контраст
-    public static final String DANGER_SOFT        = "#F2A8B0"; // мек пастелен корал (decline/block/delete)
-    public static final String DANGER_SOFT_TEXT   = "#7a2330"; // тъмно бордо текст за контраст
-    public static final String DANGER_SOFT_BG      = "#FCE8EA"; // много светъл фон за Danger Zone карта
+    public static final String SUCCESS_SOFT       = "#9FE0C7"; // soft pastel green (accept buttons)
+    public static final String SUCCESS_SOFT_TEXT  = "#1f6e54"; // dark green text for contrast
+    public static final String DANGER_SOFT        = "#F2A8B0"; // soft pastel coral (decline/block/delete)
+    public static final String DANGER_SOFT_TEXT   = "#7a2330"; // dark maroon text for contrast
+    public static final String DANGER_SOFT_BG      = "#FCE8EA"; // very light background for the Danger Zone card
 
-    // Споделен enum между bubble и background темите
+    // Enum shared between bubble and background themes
     public enum BubbleThemeType { SOLID, OMBRE }
 
     // ============================================================
-    // APP / CHAT BACKGROUND THEMES — solid + ombre, избор чрез клик
-    // (същия модел като bubble темите, за консистентен UX)
+    // APP / CHAT BACKGROUND THEMES — solid + ombre, picked by click
+    // (same model as the bubble themes, for consistent UX)
     // ============================================================
 
     public static class BackgroundTheme {
         public final String id;
         public final String displayName;
-        public final BubbleThemeType type; // преизползваме SOLID/OMBRE enum-а
+        public final BubbleThemeType type; // reuses the SOLID/OMBRE enum
         public final String[] colors;
 
         public BackgroundTheme(String id, String displayName, BubbleThemeType type, String[] colors) {
@@ -133,7 +134,7 @@ public class ChatTheme {
         }
     }
 
-    // ── 4 най-светли solid фона (наситените са оставени за балончета) ──
+    // ── 4 lightest solid backgrounds (the saturated ones are reserved for bubbles) ──
     private static final BackgroundTheme BG_SOLID_PERIWINKLE = new BackgroundTheme(
             "bg_solid_periwinkle", "Periwinkle", BubbleThemeType.SOLID, new String[]{LILAC_1});
     private static final BackgroundTheme BG_SOLID_LILAC = new BackgroundTheme(
@@ -143,7 +144,7 @@ public class ChatTheme {
     private static final BackgroundTheme BG_SOLID_BLUSH = new BackgroundTheme(
             "bg_solid_blush", "Blush", BubbleThemeType.SOLID, new String[]{LILAC_4});
 
-    // ── Омбре фонове (запазени от преди, вече избираеми чрез swatch) ──
+    // ── Ombre backgrounds (kept from before, now selectable via swatch) ──
     private static final BackgroundTheme BG_OMBRE_2 = new BackgroundTheme(
             "bg_ombre_2", "Soft Fade", BubbleThemeType.OMBRE, new String[]{LILAC_1, LILAC_4});
     private static final BackgroundTheme BG_OMBRE_3 = new BackgroundTheme(
@@ -151,7 +152,7 @@ public class ChatTheme {
     private static final BackgroundTheme BG_OMBRE_4 = new BackgroundTheme(
             "bg_ombre_4", "Twilight Sky", BubbleThemeType.OMBRE, new String[]{LILAC_6, LILAC_5, LILAC_3, LILAC_4});
 
-    // ── "Sky" solid + ombre фонове (новата палитра, заменя зеленото) ──
+    // ── "Sky" solid + ombre backgrounds (the new palette, replaces the green one) ──
     private static final BackgroundTheme BG_SOLID_SKY_ICE = new BackgroundTheme(
             "bg_solid_sky_ice", "Sky Ice", BubbleThemeType.SOLID, new String[]{SKY_1});
     private static final BackgroundTheme BG_SOLID_SKY = new BackgroundTheme(
@@ -159,8 +160,8 @@ public class ChatTheme {
     private static final BackgroundTheme BG_OMBRE_SKY = new BackgroundTheme(
             "bg_ombre_sky", "Ocean Breeze", BubbleThemeType.OMBRE, new String[]{SKY_1, SKY_6});
 
-    // ── "Vivid" solid + омбре фонове — приглушени VIVID_BG_* нюанси, не
-    // суровите VIVID_* (тия заливаха целия екран и давеха текста) ──
+    // ── "Vivid" solid + ombre backgrounds — muted VIVID_BG_* hues, not
+    // the raw VIVID_* ones (those flooded the whole screen and drowned the text) ──
     private static final BackgroundTheme BG_SOLID_SUNFLOWER = new BackgroundTheme(
             "bg_solid_sunflower", "Sunflower", BubbleThemeType.SOLID, new String[]{VIVID_BG_1});
     private static final BackgroundTheme BG_SOLID_COBALT = new BackgroundTheme(
@@ -175,7 +176,7 @@ public class ChatTheme {
             "bg_ombre_full_spectrum", "Full Spectrum", BubbleThemeType.OMBRE,
             new String[]{VIVID_BG_1, VIVID_BG_4, VIVID_BG_6, VIVID_BG_8});
 
-    // ── 6 нови непастелни solid фона (същото приглушено ниво на яркост) ──
+    // ── 6 new non-pastel solid backgrounds (same muted brightness level) ──
     private static final BackgroundTheme BG_SOLID_TEAL = new BackgroundTheme(
             "bg_solid_teal", "Teal", BubbleThemeType.SOLID, new String[]{VIVID_BG_TEAL});
     private static final BackgroundTheme BG_SOLID_EMERALD = new BackgroundTheme(
@@ -202,9 +203,9 @@ public class ChatTheme {
             BG_OMBRE_TROPICAL_SUNSET, BG_OMBRE_COSMIC_FADE, BG_OMBRE_FULL_SPECTRUM
     );
 
-    // По желание на потребителя: "dev" акаунтът сложи Sky/Electric Blue и
-    // помоли това да стане приложението-широк дефолт вместо предишния
-    // пастелен "Dreamer" (bg_ombre_3).
+    // At the user's request: the "dev" account set Sky/Electric Blue and
+    // asked for this to become the app-wide default instead of the previous
+    // pastel "Dreamer" (bg_ombre_3).
     public static final String DEFAULT_BACKGROUND_THEME_ID = "bg_solid_sky";
 
     public static BackgroundTheme getBackgroundThemeById(String id) {
@@ -226,7 +227,7 @@ public class ChatTheme {
         return ALL_BACKGROUND_THEMES.stream().anyMatch(t -> t.id.equals(id));
     }
 
-    // Помощен метод: превръща масив HEX цветове в CSS linear-gradient низ
+    // Helper method: turns an array of HEX colors into a CSS linear-gradient string
     public static String toCssLinearGradient(String[] colors, String direction) {
         StringBuilder sb = new StringBuilder("linear-gradient(" + direction);
         for (String c : colors) {
@@ -237,15 +238,15 @@ public class ChatTheme {
     }
 
     // ============================================================
-    // BUBBLE THEMES — 10 теми (5 едноцветни + 5 омбре)
+    // BUBBLE THEMES — 10 themes (5 solid + 5 ombre)
     // ============================================================
 
     public static class BubbleTheme {
         public final String id;
         public final String displayName;
         public final BubbleThemeType type;
-        public final String[] colors;     // 1 цвят за SOLID, 2 за OMBRE
-        public final String textColor;    // цвят на текста върху балончето
+        public final String[] colors;     // 1 color for SOLID, 2 for OMBRE
+        public final String textColor;    // text color over the bubble
 
         public BubbleTheme(String id, String displayName, BubbleThemeType type, String[] colors, String textColor) {
             this.id = id;
@@ -255,7 +256,7 @@ public class ChatTheme {
             this.textColor = textColor;
         }
 
-        // CSS -fx-background-color стойност (плътен цвят или linear-gradient)
+        // CSS -fx-background-color value (solid color or linear-gradient)
         public String toFxBackground() {
             if (type == BubbleThemeType.SOLID) {
                 return colors[0];
@@ -264,7 +265,7 @@ public class ChatTheme {
         }
     }
 
-    // ── 5 пастелни едноцветни теми ────────────────────────────
+    // ── 5 pastel solid themes ────────────────────────────
     private static final BubbleTheme SOLID_LAVENDER = new BubbleTheme(
             "solid_lavender", "Lavender", BubbleThemeType.SOLID,
             new String[]{"#C8CEEE"}, TEXT_ON_BUBBLE);
@@ -279,7 +280,7 @@ public class ChatTheme {
 
     private static final BubbleTheme SOLID_PERIWINKLE = new BubbleTheme(
             "solid_periwinkle", "Periwinkle", BubbleThemeType.SOLID,
-            new String[]{"#A7ABDE"}, "#FFFFFF"); // по-тъмен пастел -> бял текст
+            new String[]{"#A7ABDE"}, "#FFFFFF"); // darker pastel -> white text
 
     private static final BubbleTheme SOLID_MINT = new BubbleTheme(
             "solid_mint", "Mint", BubbleThemeType.SOLID,
@@ -287,9 +288,9 @@ public class ChatTheme {
 
     private static final BubbleTheme SOLID_SKY = new BubbleTheme(
             "solid_sky", "Sky", BubbleThemeType.SOLID,
-            new String[]{SKY_6}, "#FFFFFF"); // наситен periwinkle-индиго -> бял текст
+            new String[]{SKY_6}, "#FFFFFF"); // saturated periwinkle-indigo -> white text
 
-    // ── 4 ярки едноцветни теми ("Vivid" палитра) ────────────────
+    // ── 4 bright solid themes ("Vivid" palette) ────────────────
     private static final BubbleTheme SOLID_SUNFLOWER = new BubbleTheme(
             "solid_sunflower", "Sunflower", BubbleThemeType.SOLID,
             new String[]{VIVID_1}, TEXT_ON_BUBBLE);
@@ -306,7 +307,7 @@ public class ChatTheme {
             "solid_electric_blue", "Electric Blue", BubbleThemeType.SOLID,
             new String[]{VIVID_8}, "#FFFFFF");
 
-    // ── 5 пастелни омбре теми ──────────────────────────────────
+    // ── 5 pastel ombre themes ──────────────────────────────────
     private static final BubbleTheme OMBRE_SUNSET = new BubbleTheme(
             "ombre_sunset", "Sunset Glow", BubbleThemeType.OMBRE,
             new String[]{"#FCDCE1", "#D8BEE5"}, TEXT_ON_BUBBLE);
@@ -331,7 +332,7 @@ public class ChatTheme {
             "ombre_sky", "Ocean Breeze", BubbleThemeType.OMBRE,
             new String[]{SKY_1, SKY_6}, TEXT_ON_BUBBLE);
 
-    // ── 6 ярки омбре теми ("Vivid" палитра, 2 цвята всяка) ──────
+    // ── 6 bright ombre themes ("Vivid" palette, 2 colors each) ──────
     private static final BubbleTheme OMBRE_GOLDEN_HOUR = new BubbleTheme(
             "ombre_golden_hour", "Golden Hour", BubbleThemeType.OMBRE,
             new String[]{VIVID_1, VIVID_2}, TEXT_ON_BUBBLE);
@@ -388,11 +389,11 @@ public class ChatTheme {
     }
 
     // ============================================================
-    // UI THEME — swatch избор на ЕДИН accent цвят за UI chrome-а
-    // (ляв панел / bottom-nav / chat header), НЕ за bubble/background теми.
-    // От тоя единствен accent цвят Main.java извежда програмно нужните
-    // по-светли нюанси (панел фон, nav фон, active-row highlight) —
-    // затова тук пазим само 1 hex цвят на тема, не цяла палитра.
+    // UI THEME — swatch selection of ONE accent color for the UI chrome
+    // (left panel / bottom-nav / chat header), NOT for bubble/background themes.
+    // From this single accent color, Main.java programmatically derives the
+    // needed lighter shades (panel background, nav background, active-row highlight) —
+    // that's why we only keep 1 hex color per theme here, not a whole palette.
     // ============================================================
     public static class UiTheme {
         public final String id;

@@ -33,8 +33,8 @@ public class FriendshipDAO {
         return dataSource.getConnection();
     }
 
-    // Нормализираме двойката alphabetically — винаги user_a < user_b
-    // Така alicebob и bobalice са един ред, UNIQUE constraint работи.
+    // Normalize the pair alphabetically — always user_a < user_b
+    // This way alicebob and bobalice are one row, the UNIQUE constraint works.
     private String[] normalized(String u1, String u2) {
         return u1.compareTo(u2) < 0
                 ? new String[]{u1, u2}
@@ -47,7 +47,7 @@ public class FriendshipDAO {
     public RequestResult sendRequest(String from, String to) {
         if (from.equals(to)) return RequestResult.CANNOT_ADD_SELF;
 
-        // Проверяваме дали получателят изобщо съществува
+        // Check whether the recipient even exists
         if (!userExists(to)) return RequestResult.USER_NOT_FOUND;
 
         String[] pair = normalized(from, to);
@@ -57,7 +57,7 @@ public class FriendshipDAO {
 
         try (Connection conn = getConnection()) {
 
-            // Проверка за съществуващ запис
+            // Check for an existing row
             try (PreparedStatement check = conn.prepareStatement(checkSql)) {
                 check.setString(1, pair[0]);
                 check.setString(2, pair[1]);
@@ -70,7 +70,7 @@ public class FriendshipDAO {
                 }
             }
 
-            // Вмъкваме нов ред
+            // Insert a new row
             try (PreparedStatement insert = conn.prepareStatement(insertSql)) {
                 insert.setString(1, pair[0]);
                 insert.setString(2, pair[1]);
@@ -105,7 +105,7 @@ public class FriendshipDAO {
 
             stmt.setString(1, pair[0]);
             stmt.setString(2, pair[1]);
-            stmt.setString(3, requester); // само истинският подател може да бъде "прието"
+            stmt.setString(3, requester); // only the real sender can be "accepted"
             int rows = stmt.executeUpdate();
             return rows > 0;
 
@@ -177,10 +177,10 @@ public class FriendshipDAO {
     }
 
     // =============================================
-    // GET PENDING REQUESTS (заявки КЪМ нас, чакащи отговор)
+    // GET PENDING REQUESTS (requests TO us, awaiting a response)
     // =============================================
     public List<String> getPendingRequests(String username) {
-        // Търсим редове, в които НИЕ не сме requested_by (т.е. другият е подал)
+        // Look for rows where WE are not requested_by (i.e. the other side sent it)
         String sql = """
             SELECT requested_by
             FROM friendships
@@ -231,18 +231,18 @@ public class FriendshipDAO {
     }
 
     // =============================================
-    // SEARCH USERS (търсене по username prefix)
+    // SEARCH USERS (search by username prefix)
     // =============================================
     public List<FriendInfo> searchUsers(String query, String excludeUsername) {
-        // SECURITY: query идва директно от потребителски input (search bar) —
-        // escape-ваме % и _ преди да го ползваме в LIKE, иначе потребител може
-        // нарочно да въведе "%" и да изтегли произволен брой потребители наведнъж
-        // (wildcard injection / information disclosure, не класически SQLi).
+        // SECURITY: query comes directly from user input (search bar) —
+        // escape % and _ before using it in LIKE, otherwise a user could
+        // deliberately type "%" and pull an arbitrary number of users at once
+        // (wildcard injection / information disclosure, not classic SQLi).
         String safeQuery = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
 
-        // ILIKE (Postgres case-insensitive LIKE), не LIKE — иначе "claude" не
-        // намира "Claude"/"CLAUDE". LIKE е case-sensitive by default в Postgres
-        // (за разлика от MySQL, откъдето идва повечето интуиция за LIKE).
+        // ILIKE (Postgres case-insensitive LIKE), not LIKE — otherwise "claude"
+        // wouldn't find "Claude"/"CLAUDE". LIKE is case-sensitive by default in Postgres
+        // (unlike MySQL, where most people's LIKE intuition comes from).
         String sql = """
             SELECT username, color
             FROM users
@@ -286,7 +286,7 @@ public class FriendshipDAO {
         }
     }
 
-    // DTO за пренос на username + color заедно
+    // DTO for carrying username + color together
     public static class FriendInfo {
         public String username;
         public String color;

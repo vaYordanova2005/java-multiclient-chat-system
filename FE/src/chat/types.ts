@@ -41,6 +41,12 @@ export interface DmConversationsPayload {
   avatars: Record<string, string>;
 }
 
+export interface GroupInfo {
+  id: number;
+  name: string;
+  members: string[];
+}
+
 export const GLOBAL_ROOM = 'global';
 
 export function dmRoomKey(a: string, b: string): string {
@@ -62,3 +68,11 @@ export function otherDmUser(room: string, self: string): string {
   if (!user1 || !user2) return '';
   return user1 === self ? user2 : user1;
 }
+
+export function groupRoomKey(id: number): string {
+  return `group_${id}`;
+}
+
+// Mirrors ClientHandler.MAX_GROUP_NAME_LENGTH on the BE — kept in one place on
+// the FE side instead of duplicated per component.
+export const MAX_GROUP_NAME_LENGTH = 60;
