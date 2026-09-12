@@ -1,17 +1,9 @@
 package com.messenger.backend.integration;
 
-import com.messenger.backend.dao.ConversationDAO;
-import com.messenger.backend.dao.MessageDAO;
-import com.messenger.backend.dao.UserDAO;
 import com.messenger.backend.model.Message;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -25,40 +17,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 // the remaining-count logic is off by one, rather than throwing. Real Postgres,
 // not a mocked DataSource, for the same reason as UserDaoChangeUsernameIT: the
 // risk lives in the SQL, not the Java control flow.
+//
+// userDAO/conversationDAO/messageDAO, the TRUNCATE, registerUser(), and
+// conversationExists() all come from PostgresIntegrationTestBase.
 class UserDaoDeleteAccountIT extends PostgresIntegrationTestBase {
-
-    private UserDAO userDAO;
-    private ConversationDAO conversationDAO;
-    private MessageDAO messageDAO;
-
-    @BeforeEach
-    void setUp() throws SQLException {
-        userDAO = new UserDAO(dataSource);
-        conversationDAO = new ConversationDAO(dataSource);
-        messageDAO = new MessageDAO(dataSource);
-
-        try (Connection conn = dataSource.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("TRUNCATE TABLE messages, friendships, blocked_users, " +
-                    "conversation_members, conversations, users RESTART IDENTITY CASCADE");
-        }
-    }
-
-    private void registerUser(String username) {
-        assertTrue(userDAO.registerUserWithSecurityQuestion(
-                username, "password123", "Favorite color?", "blue"));
-    }
-
-    private boolean conversationExists(int conversationId) throws SQLException {
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                     "SELECT 1 FROM conversations WHERE id = ?")) {
-            stmt.setInt(1, conversationId);
-            try (ResultSet rs = stmt.executeQuery()) {
-                return rs.next();
-            }
-        }
-    }
 
     @Test
     void deletingTheLastMemberDisbandsTheGroupAndItsHistory() throws SQLException {

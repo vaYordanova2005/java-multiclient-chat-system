@@ -1,15 +1,11 @@
 package com.messenger.backend.integration;
 
 import com.messenger.backend.dao.FriendshipDAO;
-import com.messenger.backend.dao.MessageDAO;
 import com.messenger.backend.dao.UserDAO;
 import com.messenger.backend.model.Message;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.sql.Connection;
-import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -24,27 +20,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 // pretty much can't break. Here we test against a real Postgres, not a mocked
 // DataSource, because the risk is precisely in the SQL (WHERE clauses, transactional
 // rollback, unique constraint), not in the Java control flow.
+//
+// userDAO/messageDAO, the TRUNCATE, and registerUser() all come from
+// PostgresIntegrationTestBase — this class only owns what's specific to it.
 class UserDaoChangeUsernameIT extends PostgresIntegrationTestBase {
 
-    private UserDAO userDAO;
-    private MessageDAO messageDAO;
     private FriendshipDAO friendshipDAO;
 
     @BeforeEach
-    void setUp() throws SQLException {
-        userDAO = new UserDAO(dataSource);
-        messageDAO = new MessageDAO(dataSource);
+    void setUp() {
         friendshipDAO = new FriendshipDAO(dataSource);
-
-        try (Connection conn = dataSource.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("TRUNCATE TABLE messages, friendships, blocked_users, users RESTART IDENTITY CASCADE");
-        }
-    }
-
-    private void registerUser(String username) {
-        assertTrue(userDAO.registerUserWithSecurityQuestion(
-                username, "password123", "Favorite color?", "blue"));
     }
 
     @Test

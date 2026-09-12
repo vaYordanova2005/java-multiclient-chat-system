@@ -1,9 +1,13 @@
 package com.messenger.backend.integration;
 
+import com.messenger.backend.dao.ConversationDAO;
+import com.messenger.backend.dao.MessageDAO;
+import com.messenger.backend.dao.UserDAO;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -11,7 +15,12 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Statement;
+
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 // Real Postgres via Testcontainers + the full schema.sql, for DAO-level
 // integration tests that don't need a full Spring context —
@@ -73,6 +82,51 @@ public abstract class PostgresIntegrationTestBase {
     static void closeDataSource() {
         if (dataSource != null) {
             dataSource.close();
+        }
+    }
+
+    // UserDAO/MessageDAO/ConversationDAO are the three DAOs every DAO-level IT
+    // in this package ends up needing — built here once so subclasses don't
+    // each redeclare + reconstruct their own copies.
+    protected UserDAO userDAO;
+    protected MessageDAO messageDAO;
+    protected ConversationDAO conversationDAO;
+
+    // ONE truncate list for every schema.sql table, shared by every subclass —
+    // before this, each DAO IT hand-copied its own subset (see review:
+    // UserDaoChangeUsernameIT's list predates conversations/conversation_members
+    // and never got extended), which is harmless today only because
+    // RESTART IDENTITY CASCADE from `users` happens to sweep up everything
+    // anyway. The next new table would silently NOT be covered by whichever
+    // list nobody remembered to touch — one list here means there's only one
+    // place left to update. Runs before any subclass's own @BeforeEach (JUnit
+    // executes superclass @BeforeEach methods first).
+    @BeforeEach
+    void resetDatabaseAndBuildDaos() throws SQLException {
+        try (Connection conn = dataSource.getConnection();
+             Statement stmt = conn.createStatement()) {
+            stmt.execute("TRUNCATE TABLE messages, friendships, blocked_users, " +
+                    "conversation_members, conversations, users RESTART IDENTITY CASCADE");
+        }
+
+        userDAO = new UserDAO(dataSource);
+        messageDAO = new MessageDAO(dataSource);
+        conversationDAO = new ConversationDAO(dataSource);
+    }
+
+    protected void registerUser(String username) {
+        assertTrue(userDAO.registerUserWithSecurityQuestion(
+                username, "password123", "Favorite color?", "blue"));
+    }
+
+    protected boolean conversationExists(int conversationId) throws SQLException {
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                     "SELECT 1 FROM conversations WHERE id = ?")) {
+            stmt.setInt(1, conversationId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                return rs.next();
+            }
         }
     }
 }
