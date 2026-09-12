@@ -191,7 +191,15 @@ public class MessageDAO {
                     msg.text = rs.getString("message");
 
                     // The sender's permanent color from users.color (via JOIN).
-                    // For system messages ("SERVER") there's no row in users — fallback gray.
+                    // Null only when there's no users row for the sender: the
+                    // "SERVER" pseudo-sender used by the roomless system notices,
+                    // or a sender whose account was deleted. Group system events
+                    // are NOT in that set — sendGroupSystemMessage stores the real
+                    // actor as sender (see ClientHandler), so they resolve to that
+                    // actor's own color here while live delivery stamps them gray.
+                    // Invisible today, since MessageRow ignores color for system
+                    // rows entirely — but don't read this fallback as "every
+                    // system message is gray".
                     String dbColor = rs.getString("color");
                     msg.color = (dbColor != null) ? dbColor : "#b2bec3";
 

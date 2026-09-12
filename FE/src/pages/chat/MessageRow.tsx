@@ -28,10 +28,14 @@ export default function MessageRow({
     // keeps in sync on rename — instead of baking the names into msg.text
     // itself, which would keep saying the old name forever after a rename.
     // {user}/{receiver} in the template get interpolated with the CURRENT
-    // values at render time.
+    // values at render time. replaceAll, not replace — the latter substitutes
+    // only the FIRST occurrence, so a template mentioning the same placeholder
+    // twice would render half-interpolated with no error anywhere. Safe to
+    // substitute blindly: usernames are ^[A-Za-z0-9]{3,30}$ (UsernameValidator),
+    // so no one can be named "{receiver}" and inject through the template.
     const systemText = (msg.text || `${msg.user} joined`)
-      .replace('{user}', msg.user ?? '')
-      .replace('{receiver}', msg.receiver ?? '');
+      .replaceAll('{user}', msg.user ?? '')
+      .replaceAll('{receiver}', msg.receiver ?? '');
     return (
       <div className={styles.systemWrapper}>
         <span className={styles.systemText}>{systemText}</span>
