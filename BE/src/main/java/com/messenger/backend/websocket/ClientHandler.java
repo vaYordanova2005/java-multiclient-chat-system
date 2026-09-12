@@ -1004,8 +1004,20 @@ public class ClientHandler {
     // a member looking at a different room right now still needs to see it
     // once they open this one, not just the ones currently sitting in it. This
     // is what turns "the group just changed, no idea why" into an actual log.
-    private void sendGroupSystemMessage(int gid, List<String> members, String text) {
-        Message sys = new Message("system", "SERVER", "#b2bec3", text);
+    //
+    // `textTemplate` may contain the literal placeholders "{user}"/"{receiver}"
+    // (interpolated client-side, see FE MessageRow.tsx) instead of baking the
+    // actor/target usernames directly into the stored text — actor and target
+    // travel as sender/receiver on the Message itself instead, the same
+    // first-class columns changeUsername() already rewrites everywhere else
+    // (messages.sender/receiver, friendships.requested_by, ...). A literal
+    // "alice added bobby to the group." would keep saying "alice" forever
+    // after alice renames herself; sender/receiver stay correct because
+    // they're not free text.
+    private void sendGroupSystemMessage(int gid, List<String> members, String actor, String target,
+                                         String textTemplate) {
+        Message sys = new Message("system", actor, "#b2bec3", textTemplate);
+        sys.receiver = target;
         sys.timestamp = getTime();
         sys.room = "group_" + gid;
         messageDAO.saveMessage(sys);
@@ -1036,7 +1048,7 @@ public class ClientHandler {
         } else {
             List<String> members = conversationDAO.getMembers(gid);
             pushGroupConversationsToOnlineMembers(members);
-            sendGroupSystemMessage(gid, members, username + " added " + target + " to the group.");
+            sendGroupSystemMessage(gid, members, username, target, "{user} added {receiver} to the group.");
         }
     }
 
@@ -1053,7 +1065,10 @@ public class ClientHandler {
         } else {
             List<String> members = conversationDAO.getMembers(gid);
             pushGroupConversationsToOnlineMembers(members);
-            sendGroupSystemMessage(gid, members, username + " renamed the group to \"" + name + "\".");
+            // No {receiver} here — the group name is arbitrary text, not a
+            // username, so unlike the actor it has no changeUsername rewrite to
+            // stay in sync with; baking it in literally is fine.
+            sendGroupSystemMessage(gid, members, username, null, "{user} renamed the group to \"" + name + "\".");
         }
     }
 
@@ -1081,7 +1096,7 @@ public class ClientHandler {
         List<String> remainingMembers = new ArrayList<>(membersBeforeLeave);
         remainingMembers.remove(username);
         if (!remainingMembers.isEmpty()) {
-            sendGroupSystemMessage(gid, remainingMembers, username + " left the group.");
+            sendGroupSystemMessage(gid, remainingMembers, username, null, "{user} left the group.");
         }
     }
 

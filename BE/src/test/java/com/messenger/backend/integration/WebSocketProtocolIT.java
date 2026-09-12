@@ -305,6 +305,84 @@ class WebSocketProtocolIT {
         }
     }
 
+    @Test
+    @Timeout(30)
+    void addedMemberSystemMessagePersistsIntoGroupHistory() throws Exception {
+        restTemplate = new TestRestTemplate();
+        String baseUrl = "http://localhost:" + port;
+
+        String userA = "sysa" + (System.nanoTime() % 100_000);
+        String userB = "sysb" + (System.nanoTime() % 100_000);
+        String tokenA = registerAndLogin(baseUrl, userA);
+        String tokenB = registerAndLogin(baseUrl, userB);
+        insertAcceptedFriendship(userA, userB);
+
+        int groupId = insertGroupConversation("history group", userA, List.of(userA));
+        String room = "group_" + groupId;
+
+        RecordingHandler handlerA = new RecordingHandler();
+        StandardWebSocketClient client = new StandardWebSocketClient();
+        WebSocketSession sessionA = client.execute(handlerA, headersWithToken(tokenA),
+                URI.create("ws://localhost:" + port + "/ws")).get(10, TimeUnit.SECONDS);
+
+        try {
+            Message addMember = new Message();
+            addMember.type = "add_group_member";
+            addMember.room = room;
+            addMember.receiver = userB;
+            sessionA.sendMessage(new TextMessage(gson.toJson(addMember)));
+
+            // Wait for the live system message to reach A — confirms
+            // handleAddGroupMember (and the messageDAO.saveMessage() inside
+            // sendGroupSystemMessage) has actually run before B, who is not
+            // online yet, connects and reads it back purely from history.
+            Message live = null;
+            for (int i = 0; i < 30 && live == null; i++) {
+                Message parsed = gson.fromJson(handlerA.next(), Message.class);
+                if ("system".equals(parsed.type) && room.equals(parsed.room)) {
+                    live = parsed;
+                }
+            }
+            assertNotNull(live, "never saw the live 'added member' system message");
+        } finally {
+            sessionA.close();
+        }
+
+        // B was never online during the add above — the ONLY way B's first
+        // connection can see this event on joining the room is if it was
+        // actually persisted (messageDAO.saveMessage), not merely fanned out
+        // live to whoever happened to be online at the time.
+        RecordingHandler handlerB = new RecordingHandler();
+        StandardWebSocketClient clientB = new StandardWebSocketClient();
+        WebSocketSession sessionB = clientB.execute(handlerB, headersWithToken(tokenB),
+                URI.create("ws://localhost:" + port + "/ws")).get(10, TimeUnit.SECONDS);
+
+        try {
+            Message join = new Message();
+            join.type = "room_join";
+            join.room = room;
+            sessionB.sendMessage(new TextMessage(gson.toJson(join)));
+
+            Message fromHistory = null;
+            for (int i = 0; i < 30 && fromHistory == null; i++) {
+                Message parsed = gson.fromJson(handlerB.next(), Message.class);
+                if ("system".equals(parsed.type) && room.equals(parsed.room)
+                        && userA.equals(parsed.user) && userB.equals(parsed.receiver)) {
+                    fromHistory = parsed;
+                }
+            }
+
+            assertNotNull(fromHistory, "'added member' system message did not survive into history");
+            // The literal template, not a baked-in name — see
+            // ClientHandler.sendGroupSystemMessage/MessageRow.tsx: actor/target
+            // travel as sender/receiver (asserted above), not as text, so a
+            // later username change doesn't leave a stale name in old history.
+            assertEquals("{user} added {receiver} to the group.", fromHistory.text);
+        } finally {
+            sessionB.close();
+        }
+    }
+
     private void registerUser(String baseUrl, String username) {
         ResponseEntity<Void> registerResponse = restTemplate.postForEntity(
                 baseUrl + "/api/auth/register",
@@ -356,6 +434,25 @@ class WebSocketProtocolIT {
             }
 
             return id;
+        }
+    }
+
+    // handleAddGroupMember requires the two to already be friends
+    // (friendshipDAO.areFriends) — inserted directly, same shortcut as
+    // insertGroupConversation, so this test doesn't also depend on the
+    // friend_request/friend_response round trip being correct.
+    private void insertAcceptedFriendship(String userA, String userB) throws Exception {
+        String first = userA.compareTo(userB) < 0 ? userA : userB;
+        String second = userA.compareTo(userB) < 0 ? userB : userA;
+
+        try (Connection conn = DriverManager.getConnection(
+                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+             java.sql.PreparedStatement ps = conn.prepareStatement(
+                     "INSERT INTO friendships (user_a, user_b, requested_by, status) VALUES (?, ?, ?, 'accepted')")) {
+            ps.setString(1, first);
+            ps.setString(2, second);
+            ps.setString(3, userA);
+            ps.executeUpdate();
         }
     }
 

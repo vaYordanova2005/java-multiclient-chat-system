@@ -392,10 +392,18 @@ export function useChat({ token, username, defaultTheme, onUsernameChanged, onAc
         case 'system': {
           if (absorbIfStale(msg)) return;
           resolvePendingRoomJoin(msg);
-          // Room-scoped (join/leave, via broadcastToRoom) only ever
-          // disagrees with currentRoomRef while a room_join is in flight;
-          // roomless ones (e.g. a direct "friend request accepted" notice)
-          // are always relevant regardless of the active room.
+          // Room-scoped system messages regularly disagree with
+          // currentRoomRef now, not just during an in-flight room_join:
+          // group events (member added/renamed/left, see BE's
+          // sendGroupSystemMessage) fan out to every online member the same
+          // way a group "message" does, regardless of which room they're
+          // currently looking at. Deliberately dropped silently here rather
+          // than bumping unread like the `default` case below does for
+          // "message" — it's already persisted and will show up next time
+          // the room is opened, and "X renamed the group" lighting up as
+          // unread isn't worth it. Roomless system messages (e.g. a direct
+          // "friend request accepted" notice) are always relevant
+          // regardless of the active room.
           if (!msg.room || msg.room === currentRoomRef.current) appendMessage(msg);
           return;
         }

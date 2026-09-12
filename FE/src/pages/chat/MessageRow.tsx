@@ -23,9 +23,18 @@ export default function MessageRow({
   bubbleTheme: BubbleTheme | undefined;
 }) {
   if (msg.type === 'system' || msg.type === 'leave' || msg.type === 'room_join') {
+    // Group system events (see BE's sendGroupSystemMessage) carry the actor/
+    // target as msg.user/msg.receiver — first-class fields changeUsername
+    // keeps in sync on rename — instead of baking the names into msg.text
+    // itself, which would keep saying the old name forever after a rename.
+    // {user}/{receiver} in the template get interpolated with the CURRENT
+    // values at render time.
+    const systemText = (msg.text || `${msg.user} joined`)
+      .replace('{user}', msg.user ?? '')
+      .replace('{receiver}', msg.receiver ?? '');
     return (
       <div className={styles.systemWrapper}>
-        <span className={styles.systemText}>{msg.text || `${msg.user} joined`}</span>
+        <span className={styles.systemText}>{systemText}</span>
       </div>
     );
   }
